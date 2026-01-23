@@ -99,5 +99,3 @@ try:
         chart_data = pd.DataFrame({
             "항목": ["기계비용", "전기요금", "냉각수비용"],
             "금액": [monthly_fixed_cost, electricity_cost, water_cost]
-        })
-        st.bar_chart(chart_data.set_index("항목"))
