@@ -81,15 +81,3 @@ try:
             # 해당 월의 사용량 합계
             water_usage = monthly_water_data['water(m3)'].sum()
             water_cost = water_usage * 1200 # 톤당 1,200원
-
-        # 5. 결과 대시보드 출력
-        st.divider()
-        st.info(f"📅 분석 기간: **{selected_month}**")
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("기계 감가상각 (월)", f"{monthly_fixed_cost:,.0f} 원")
-        c2.metric("전력 사용량", f"{total_kwh:,.1f} kWh")
-        c3.metric("전기 요금 (추정)", f"{electricity_cost:,.0f} 원")
-        
-        total_cost = monthly_fixed_cost + electricity_cost + water_cost
-        c4.metric("💰 총 소성 비용", f"{total_cost:,.0f} 원")
