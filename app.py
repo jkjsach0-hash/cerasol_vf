@@ -2,66 +2,85 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
+# 1. 페이지 설정
 st.set_page_config(page_title="공장 소성 비용 분석기", layout="wide")
 st.title("🏭 진공로 소성 비용 통합 대시보드")
 
-# 1. 구글 시트 연결
+# 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # [중요] 탭 이름 대신 "번호"로 시트를 가져오도록 시도합니다.
-    # 만약 이름으로 찾을 수 없다면 첫 번째 탭부터 순서대로 읽어옵니다.
-    
-    @st.cache_data(ttl=600)
-    def load_all_sheets():
-        # 시트 전체를 읽어와서 각 탭을 리스트에 담습니다.
-        # 이름 매칭 에러를 피하기 위해 하나씩 시도합니다.
-        s1 = conn.read(worksheet="Machines")
-        s2 = conn.read(worksheet="Waterlogs") # 대문자 반영
-        s3 = conn.read(worksheet="MachinesMonthlyEnergy")
-        s4 = conn.read(worksheet="FactoryEnergyExpenses")
-        return s1, s2, s3, s4
+    # 3. 변경된 탭 이름으로 데이터 로드
+    # 캐시를 사용하여 로딩 속도를 높이고 안정성을 확보합니다.
+    @st.cache_data(ttl=300)
+    def load_data():
+        d1 = conn.read(worksheet="Machines")
+        d2 = conn.read(worksheet="Waterlogs")
+        d3 = conn.read(worksheet="MME")
+        d4 = conn.read(worksheet="FEE")
+        return d1, d2, d3, d4
 
-    df_machines, df_water, df_energy, df_billing = load_all_sheets()
+    df_machines, df_water, df_energy, df_billing = load_data()
 
-    st.success("🎉 모든 탭(Machines, Waterlogs 등) 연결에 성공했습니다!")
+    # 데이터 로드 성공 메시지
+    st.success("✅ 모든 데이터 시트(Machines, Waterlogs, MME, FEE) 연결 성공!")
 
-    # --- 데이터 계산 ---
-    # 1. 기계 비용 (취득원가 합계 / 120개월)
-    total_price = pd.to_numeric(df_machines['취득원가'], errors='coerce').sum()
-    monthly_fixed_cost = total_price / 120
+    # --- 데이터 전처리 ---
+    df_water['날짜'] = pd.to_datetime(df_water['날짜'], errors='coerce')
+    df_machines['취득원가'] = pd.to_numeric(df_machines['취득원가'], errors='coerce')
+    df_energy['전력량'] = pd.to_numeric(df_energy['전력량'], errors='coerce')
+    df_billing['전기요금'] = pd.to_numeric(df_billing['전기요금'], errors='coerce')
 
-    # 2. 월 선택 (MachinesMonthlyEnergy의 '월' 열 기준)
+    # 4. 사이드바: 분석 월 선택 (MME 시트의 '월' 열 기준)
+    st.sidebar.header("🗓️ 기간 설정")
     available_months = df_energy['월'].dropna().unique()
-    selected_month = st.sidebar.selectbox("분석할 월 선택", available_months)
-
-    # 3. 전력량 및 전기요금
-    energy_data = df_energy[df_energy['월'] == selected_month]
-    total_kwh = energy_data['전력량'].iloc[0] if not energy_data.empty else 0
+    selected_month = st.sidebar.selectbox("조회할 월을 선택하세요", available_months)
     
-    billing_data = df_billing[df_billing['월'] == selected_month]
-    if not billing_data.empty:
-        actual_cost = billing_data['전기요금'].iloc[0]
+    # 5. 비용 계산 로직
+    # (1) 기계 고정비 (취득원가 합계 / 120개월)
+    fixed_cost = (df_machines['취득원가'].sum() / 120)
+
+    # (2) 전력량 및 전기요금 (MME와 FEE 시트 매칭)
+    energy_row = df_energy[df_energy['월'] == selected_month]
+    total_kwh = energy_row['전력량'].iloc[0] if not energy_row.empty else 0
+    
+    billing_row = df_billing[df_billing['월'] == selected_month]
+    if not billing_row.empty and pd.notnull(billing_row['전기요금'].iloc[0]):
+        actual_power_cost = billing_row['전기요금'].iloc[0]
+        calc_note = "실제 청구 요금"
     else:
-        actual_cost = total_kwh * 125 # 시트에 요금 없으면 추정치
+        actual_power_cost = total_kwh * 125 # 실제 요금 없을 시 추정 단가
+        calc_note = "추정 요금 (단가 125원)"
 
-    # 4. 결과 출력
-    st.divider()
-    m1, m2, m3 = st.columns(3)
-    m1.metric("기계 감가상각(월)", f"{monthly_fixed_cost:,.0f} 원")
+    # (3) 냉각수 비용 (Waterlogs 기반 - 월 평균 추정)
+    # 선택된 월 형식이 '2023.12' 등일 경우를 대비해 변환
+    match_month = str(selected_month).replace('.', '-')
+    df_water['월_match'] = df_water['날짜'].dt.to_period('M').astype(str)
+    monthly_water = df_water[df_water['월_match'].str.contains(match_month, na=False)]
+    
+    if not monthly_water.empty:
+        water_usage = monthly_water['냉각수사용량(m3)'].mean() * 30
+    else:
+        water_usage = 0
+    water_cost = water_usage * 1200 # m3당 1,200원
+
+    # 6. 메인 화면 대시보드
+    st.info(f"💡 현재 **{selected_month}** 분석 중 | 전기료 적용 방식: **{calc_note}**")
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("기계 감가상각", f"{fixed_cost:,.0f} 원")
     m2.metric("전력 사용량", f"{total_kwh:,.1f} kWh")
-    m3.metric("전기 요금", f"{actual_cost:,.0f} 원")
+    m3.metric("전기 요금", f"{actual_power_cost:,.0f} 원")
+    m4.metric("총 합계 비용", f"{(fixed_cost + actual_power_cost + water_cost):,.0f} 원")
 
-    # 5. 차트
-    chart_data = pd.DataFrame({
-        "항목": ["기계비용", "전기료"],
-        "금액": [monthly_fixed_cost, actual_cost]
+    # 7. 그래프 시각화
+    st.subheader("📊 비용 항목별 비중")
+    chart_df = pd.DataFrame({
+        "항목": ["기계비용", "전기료", "냉각수(추정)"],
+        "금액": [fixed_cost, actual_power_cost, water_cost]
     })
-    st.bar_chart(chart_data.set_index("항목"))
+    st.bar_chart(chart_df.set_index("항목"))
 
 except Exception as e:
-    st.error(f"⚠️ 연결 실패 상세 원인: {e}")
-    st.write("### 💡 해결을 위해 아래 내용을 확인해주세요:")
-    st.write("1. **Secrets 주소:** 끝에 `/edit` 외에 다른 글자가 있는지 확인 (예: `#gid=...` 는 삭제)")
-    st.write("2. **시트 공유:** '링크가 있는 모든 사용자'가 **[뷰어]** 또는 **[편집자]**인지 확인")
-    st.write("3. **탭 순서:** 시트 하단 탭 순서가 `Machines`, `Waterlogs` ... 순서인지 확인")
+    st.error(f"❌ 에러 발생: {e}")
+    st.info("시트 탭 이름(Machines, Waterlogs, MME, FEE)과 컬럼명이 정확한지 다시 확인해 주세요.")
