@@ -6,7 +6,7 @@ st.set_page_config(page_title="공장 소성 비용 분석기", layout="wide")
 st.title("🏭 진공로 소성 비용 통합 대시보드")
 
 # 1. 시트 ID 설정 (여기에 본인의 시트 ID를 넣어주세요)
-SHEET_ID = "사용자님의_시트_ID_입력" 
+SHEET_ID = "1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY" 
 
 def load_sheet(sheet_name):
     # 한글 탭 이름도 안전하게 가져오는 주소 생성
