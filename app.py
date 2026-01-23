@@ -3,78 +3,83 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
 # 1. 앱 페이지 설정
-st.set_page_config(page_title="소성 비용 계산기", layout="wide")
-st.title("🔥 진공로 소성 비용 통합 분석기")
+st.set_page_config(page_title="공장 소성 비용 분석기", layout="wide")
+st.title("🏭 진공로 소성 비용 통합 대시보드")
 
 # 2. 구글 시트 연결
-# .streamlit/secrets.toml에 등록된 주소를 자동으로 읽어옵니다.
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 3. 데이터 시트별로 불러오기
-    # worksheet 이름이 실제 구글 시트 탭 이름과 정확히 일치해야 합니다.
-    df_machines = conn.read(worksheet="Machines")
-    df_water = conn.read(worksheet="Waterlogs")
-    df_power = conn.read(worksheet="MachinesMonthlyEnergy")
+    # 3. 데이터 시트 읽기
+    df_machines = conn.read(worksheet="machines")
+    df_water = conn.read(worksheet="waterlogs")
+    df_energy = conn.read(worksheet="MachinesMonthlyEnergy")
     df_billing = conn.read(worksheet="FactoryEnergyExpenses")
 
     # --- 데이터 전처리 ---
-    # 날짜 컬럼을 시트에서 정리한 대로 변환
     df_water['날짜'] = pd.to_datetime(df_water['날짜'])
-    df_power['날짜'] = pd.to_datetime(df_power['날짜'])
+    df_machines['취득원가'] = pd.to_numeric(df_machines['취득원가'], errors='coerce')
+    df_energy['전력량'] = pd.to_numeric(df_energy['전력량'], errors='coerce')
+    df_billing['전기요금'] = pd.to_numeric(df_billing['전기요금'], errors='coerce')
 
-    # 4. 사이드바: 분석 기간 및 단가 설정
-    st.sidebar.header("⚙️ 설정 및 입력")
-    # 분석하고 싶은 월 선택 (데이터 내의 고유한 년-월 리스트)
-    available_months = df_power['날짜'].dt.to_period('M').unique().astype(str)
-    selected_month = st.sidebar.selectbox("분석 대상 월 선택", available_months)
-
-    # 한전 API 미연결 시 사용할 기본 단가
-    default_rate = st.sidebar.number_input("전기 기본 단가 (원/kWh)", value=120)
-
+    # 4. 사이드바: 분석 월 선택
+    st.sidebar.header("🗓️ 기간 설정")
+    available_months = df_energy['월'].unique()
+    selected_month = st.sidebar.selectbox("조회할 월을 선택하세요", available_months)
+    
     # 5. 비용 계산 로직
-    # (1) 고정비: 기계 감가상각 (구매가 / (수명*12))
-    df_machines['월감가상각'] = df_machines['구매가'] / (df_machines['기대수명'] * 12)
-    fixed_cost = df_machines['월감가상각'].sum() + df_machines['월유지보수비'].sum()
+    # (1) 기계 고정비: 취득원가 합계 / 120개월(10년)
+    monthly_fixed_cost = (df_machines['취득원가'].sum() / 120)
 
-    # (2) 변동비: 전력량 계산 (선택 월 필터링)
-    monthly_power = df_power[df_power['날짜'].dt.to_period('M') == selected_month]
-    total_kwh = monthly_power['총전력량'].sum()
+    # (2) 전력량 및 전기요금 결정
+    # MachinesMonthlyEnergy에서 해당 월 전력량 가져오기
+    energy_row = df_energy[df_energy['월'] == selected_month]
+    total_kwh = energy_row['전력량'].iloc[0] if not energy_row.empty else 0
     
-    # 공장 전기 요금 시트가 비어있으면 수동 단가 사용
-    if df_billing.empty or '단가' not in df_billing.columns:
-        power_cost = total_kwh * default_rate
+    # FactoryEnergyExpenses에서 실제 요금 확인
+    billing_row = df_billing[df_billing['월'] == selected_month]
+    if not billing_row.empty and pd.notnull(billing_row['전기요금'].iloc[0]):
+        actual_power_cost = billing_row['전기요금'].iloc[0]
+        calc_method = "실제 청구 요금 기반"
     else:
-        # 시트 데이터가 있다면 해당 월의 단가 사용 (없으면 기본값)
-        power_cost = total_kwh * df_billing['단가'].iloc[0]
+        # 실제 요금이 없으면 전력량 기반 추정 (기본 단가 125원 가정)
+        actual_power_cost = total_kwh * 125
+        calc_method = "전력량 기반 추정치 (단가 125원 적용)"
 
-    # (3) 변동비: 냉각수 (데이터 누락 처리)
-    monthly_water = df_water[df_water['날짜'].dt.to_period('M') == selected_month]
-    if len(monthly_water) < 25: # 한 달 데이터가 부족할 경우
-        avg_water = monthly_water['사용량'].mean() if not monthly_water.empty else 0
-        total_water = avg_water * 30 # 한 달치로 추정
-        st.warning(f"⚠️ {selected_month} 냉각수 데이터가 부족하여 평균값으로 추정합니다.")
-    else:
-        total_water = monthly_water['사용량'].sum()
+    # (3) 냉각수 비용 (waterlogs 기반 추정)
+    match_month = str(selected_month).replace('.', '-')
+    df_water['월_temp'] = df_water['날짜'].dt.to_period('M').astype(str)
+    monthly_water = df_water[df_water['월_temp'].str.contains(match_month)]
     
-    water_cost = total_water * 1000 # 톤당 1000원 가정 (수정 가능)
+    if not monthly_water.empty:
+        total_water_usage = monthly_water['냉각수사용량(m3)'].mean() * 30
+    else:
+        total_water_usage = 0
+    water_cost = total_water_usage * 1200 # m3당 1,200원
 
-    # 6. 결과 화면 출력 (대시보드)
-    st.divider()
+    # 6. 결과 화면 (대시보드)
+    st.info(f"💡 현재 **{selected_month}** 데이터를 분석 중입니다. ({calc_method})")
+    
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("기계 고정비", f"{fixed_cost:,.0f} 원")
+    m1.metric("기계 감가상각", f"{monthly_fixed_cost:,.0f} 원")
     m2.metric("전력 사용량", f"{total_kwh:,.1f} kWh")
-    m3.metric("전기 요금", f"{power_cost:,.0f} 원")
-    m4.metric("총 소성 비용", f"{(fixed_cost + power_cost + water_cost):,.0f} 원")
+    m3.metric("전기 요금", f"{actual_power_cost:,.0f} 원")
+    m4.metric("총 소성 비용", f"{(monthly_fixed_cost + actual_power_cost + water_cost):,.0f} 원")
 
-    # 7. 시각화 (막대 그래프)
-    st.subheader(f"📊 {selected_month} 비용 구성 비율")
-    chart_data = pd.DataFrame({
-        "항목": ["고정비(기계)", "전기요금", "냉각수"],
-        "금액": [fixed_cost, power_cost, water_cost]
-    })
-    st.bar_chart(chart_data.set_index("항목"))
+    # 7. 시각화
+    col_chart, col_table = st.columns([2, 1])
+    with col_chart:
+        st.subheader("📊 비용 구성 비율")
+        chart_data = pd.DataFrame({
+            "항목": ["고정비(기계)", "전기요금", "냉각수"],
+            "금액": [monthly_fixed_cost, actual_power_cost, water_cost]
+        })
+        st.bar_chart(chart_data.set_index("항목"))
+
+    with col_table:
+        st.subheader("📋 설비 리스트")
+        st.dataframe(df_machines[['기계명', '취득원가']], hide_index=True)
 
 except Exception as e:
-    st.error(f"데이터를 불러오는 중 에러가 발생했습니다: {e}")
-    st.info("구글 시트의 탭 이름과 컬럼명이 코드와 일치하는지 확인해 주세요.")
+    st.error(f"⚠️ 시트 연결 에러: {e}")
+    st.warning("구글 시트의 탭 이름(machines, waterlogs, MachinesMonthlyEnergy, FactoryEnergyExpenses)을 다시 확인해주세요.")
