@@ -1,99 +1,124 @@
 import streamlit as st
 import pandas as pd
-import urllib.parse
+from datetime import datetime, date
 
-# 1. 페이지 설정
-st.set_page_config(page_title="공장 소성 비용 분석기", layout="wide")
-st.title("🏭 진공로 소성 비용 통합 대시보드")
+# -----------------------------------------------------------------------------
+# 1. 페이지 설정 및 제목
+# -----------------------------------------------------------------------------
+st.set_page_config(page_title="소성 비용 계산기", layout="wide")
 
-# ---------------------------------------------------------
-# [필수] 시트 ID 입력 (d/ 와 /edit 사이의 문자열)
-SHEET_ID = "1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY" 
-# ---------------------------------------------------------
+st.title("🏭 설비 관리 및 비용 산출")
+st.markdown("설비별 감가상각 현황과 재구입을 위한 적립 비용을 확인합니다.")
 
-def load_sheet(sheet_name):
-    """특수문자/한글이 포함된 탭 이름을 안전하게 주소로 변환하여 로드"""
-    safe_name = urllib.parse.quote(sheet_name)
-    url = f"https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&sheet={safe_name}"
-    return pd.read_csv(url)
+# -----------------------------------------------------------------------------
+# 2. 데이터 로드 (나중에는 구글 시트에서 가져오는 부분으로 대체됩니다)
+# -----------------------------------------------------------------------------
+# 가상의 구글 시트 데이터
+data = {
+    '설비명': ['전기가마 0.3루베', '전기물레 A', '토련기'],
+    '취득원가': [5000000, 800000, 2500000],
+    '구입일자': ['2021-01-15', '2022-03-10', '2020-06-20'],
+    '내용연수': [10, 5, 8]  # 단위: 년
+}
+df = pd.DataFrame(data)
 
-# 2. 데이터 로드 (에러 발생 시 화면에 메시지 출력)
-try:
-    df_machines = load_sheet("설비")
-    df_water = load_sheet("냉각수")
-    df_energy = load_sheet("설비전력")
-except Exception as e:
-    st.error(f"❌ 데이터 로드 실패: {e}")
-    st.stop() # 더 이상 진행하지 않고 멈춤
+# 날짜 형식 변환
+df['구입일자'] = pd.to_datetime(df['구입일자'])
 
-# 3. 데이터 전처리 (컬럼명 통일 및 숫자 변환)
+# -----------------------------------------------------------------------------
+# 3. 핵심 계산 로직
+# -----------------------------------------------------------------------------
+today = datetime.now()
+end_of_year = datetime(today.year, 12, 31)
 
-# (1) 설비(Machines) 시트: '취득원가' -> 'price'
-if '취득원가' in df_machines.columns:
-    df_machines = df_machines.rename(columns={'취득원가': 'price'})
-    # 쉼표 제거 후 숫자로 변환
-    df_machines['price'] = pd.to_numeric(df_machines['price'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-
-# (2) 전력(MME) 시트: '날짜' -> 'date', '사용량' -> 'amount'
-if '날짜' in df_energy.columns:
-    df_energy = df_energy.rename(columns={'날짜': 'date', '사용량': 'amount'})
-    df_energy['amount'] = pd.to_numeric(df_energy['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-    # 날짜 형식 변환 및 '월' 컬럼 생성 (YYYY-MM)
-    df_energy['date'] = pd.to_datetime(df_energy['date'], errors='coerce')
-    df_energy['month'] = df_energy['date'].dt.strftime('%Y-%m')
-
-# (3) 냉각수(Waterlogs) 시트: 'water(m3)' 숫자 변환
-if 'water(m3)' in df_water.columns:
-    df_water['water(m3)'] = pd.to_numeric(df_water['water(m3)'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-    # 날짜 형식 변환 및 '월' 컬럼 생성
-    df_water['date'] = pd.to_datetime(df_water['date'], errors='coerce')
-    df_water['month'] = df_water['date'].dt.strftime('%Y-%m')
-
-
-# 4. 비용 계산 및 대시보드 출력
-
-# (A) 기계 감가상각 (월 고정비)
-monthly_fixed_cost = 0
-if 'price' in df_machines.columns:
-    monthly_fixed_cost = df_machines['price'].sum() / 120
-
-# (B) 월별 변동비 계산
-if 'month' in df_energy.columns:
-    # 분석할 월 선택
-    available_months = sorted(df_energy['month'].dropna().unique(), reverse=True)
-    selected_month = st.sidebar.selectbox("분석할 월 선택", available_months)
+def calculate_metrics(row):
+    cost = row['취득원가']
+    life_years = row['내용연수']
+    buy_date = row['구입일자']
     
-    # 1. 전기요금 계산
-    energy_row = df_energy[df_energy['month'] == selected_month]
-    total_kwh = energy_row['amount'].iloc[0] if not energy_row.empty else 0
-    electricity_cost = total_kwh * 125 # 단가 125원 가정
+    # 1. 연간 감가상각비 (1년치 마모 비용)
+    depreciation_per_year = cost / life_years
     
-    # 2. 냉각수 비용 계산
-    water_usage = 0
-    if 'month' in df_water.columns:
-        # 해당 월의 물 사용량 합계
-        water_usage = df_water[df_water['month'] == selected_month]['water(m3)'].sum()
-    water_cost = water_usage * 1200 # 톤당 1,200원
-
-    # 5. 결과 표시
-    st.divider()
-    st.info(f"📅 분석 기간: **{selected_month}**")
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("기계 감가상각 (월)", f"{monthly_fixed_cost:,.0f} 원")
-    c2.metric("전력 사용량", f"{total_kwh:,.1f} kWh")
-    c3.metric("전기 요금 (추정)", f"{electricity_cost:,.0f} 원")
+    # 2. 경과 일수 및 연수 계산
+    days_passed = (today - buy_date).days
+    years_passed = days_passed / 365.0
     
-    total_cost = monthly_fixed_cost + electricity_cost + water_cost
-    c4.metric("💰 총 소성 비용", f"{total_cost:,.0f} 원")
+    # 3. 현재 감가상각 잔액 (현재 가치)
+    # (취득원가 - (연간상각비 * 경과연수)), 단 0원 미만으로 내려가지 않음
+    current_book_value = max(cost - (depreciation_per_year * years_passed), 0)
+    
+    # 4. 올해 말 기준 예상 잔가
+    days_until_eoy = (end_of_year - buy_date).days
+    years_until_eoy = days_until_eoy / 365.0
+    eoy_book_value = max(cost - (depreciation_per_year * years_until_eoy), 0)
+    
+    # 5. 재구입 적립 필요 비용 (올해 할당분)
+    # 단순히 생각하면 '연간 감가상각비'가 곧 매년 적립해야 할 비용입니다.
+    replacement_fund_yearly = depreciation_per_year
 
-    # 6. 차트
-    st.subheader("📊 비용 구성 차트")
-    chart_data = pd.DataFrame({
-        "항목": ["기계비용", "전기요금", "냉각수비용"],
-        "금액": [monthly_fixed_cost, electricity_cost, water_cost]
-    })
-    st.bar_chart(chart_data.set_index("항목"))
+    return pd.Series([current_book_value, eoy_book_value, replacement_fund_yearly])
 
-else:
-    st.warning("전력 데이터(MME)를 불러올 수 없거나 날짜 형식이 올바르지 않습니다.")
+# 데이터프레임에 계산 결과 적용
+df[['현재잔액', '올해말잔가', '연간적립필요액']] = df.apply(calculate_metrics, axis=1)
+
+# -----------------------------------------------------------------------------
+# 4. 화면 UI 구성
+# -----------------------------------------------------------------------------
+
+# [섹션 1] 요약 지표 (KPI)
+st.subheader("📊 전체 설비 요약")
+col1, col2, col3 = st.columns(3)
+
+total_acquisition = df['취득원가'].sum()
+total_current_value = df['현재잔액'].sum()
+total_yearly_fund = df['연간적립필요액'].sum()
+
+with col1:
+    st.metric(label="총 취득 원가", value=f"{total_acquisition:,.0f} 원")
+with col2:
+    st.metric(label="현재 설비 총 잔액", value=f"{total_current_value:,.0f} 원", 
+              delta=f"-{total_acquisition - total_current_value:,.0f} (감가상각)")
+with col3:
+    st.metric(label="올해 적립해야 할 총 비용", value=f"{total_yearly_fund:,.0f} 원",
+              help="모든 설비를 동일하게 재구입하기 위해 올해 모아야 할 금액의 합계입니다.")
+
+st.divider()
+
+# [섹션 2] 상세 리스트
+st.subheader("📋 설비별 상세 현황")
+
+# 표시할 컬럼 선택 및 포맷팅을 위한 복사본 생성
+display_df = df.copy()
+
+# 날짜 포맷 변경 (YYYY-MM-DD)
+display_df['구입일자'] = display_df['구입일자'].dt.strftime('%Y-%m-%d')
+
+# 숫자 포맷팅 함수
+def format_currency(x):
+    return f"{x:,.0f} 원"
+
+# 보여줄 컬럼만 선택 및 이름 변경
+final_df = display_df[[
+    '설비명', '구입일자', '내용연수', '취득원가', '현재잔액', '올해말잔가', '연간적립필요액'
+]]
+
+# 데이터프레임 스타일링 (천단위 콤마)
+st.dataframe(
+    final_df.style.format({
+        '취득원가': format_currency,
+        '현재잔액': format_currency,
+        '올해말잔가': format_currency,
+        '연간적립필요액': format_currency,
+        '내용연수': '{} 년'
+    }),
+    use_container_width=True,
+    hide_index=True
+)
+
+# [팁] 사용자 가이드
+st.info("""
+**💡 용어 설명**
+- **현재 잔액**: 구입일로부터 오늘까지 감가상각된 금액을 제외한 현재 설비의 가치입니다.
+- **올해 말 잔가**: 올해 12월 31일이 되었을 때 예상되는 설비의 가치입니다.
+- **연간 적립 필요액**: 내용연수가 끝나기 전, 동일한 설비를 재구매하기 위해 매년 적립해야 하는 비용입니다.
+""")
