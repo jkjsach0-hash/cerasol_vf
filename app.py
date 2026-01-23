@@ -17,9 +17,9 @@ def load_sheet(sheet_name):
 try:
     # 2. 데이터 로드 (시트의 탭 이름과 일치해야 합니다)
     # 업로드하신 파일명 기반으로 추측한 탭 이름: Machines, Waterlogs, MME
-    df_machines = load_sheet("Machines")
-    df_water = load_sheet("Waterlogs")
-    df_energy = load_sheet("MME")
+    df_machines = load_sheet("설비")
+    df_water = load_sheet("냉각수")
+    df_energy = load_sheet("설비전력")
 
     # 3. 컬럼 이름 표준화 (한글/영어 섞인 것을 통일)
     # 설비 시트: '취득원가' -> 'price'
