@@ -93,9 +93,3 @@ try:
         
         total_cost = monthly_fixed_cost + electricity_cost + water_cost
         c4.metric("💰 총 소성 비용", f"{total_cost:,.0f} 원")
-
-        # 6. 차트 시각화
-        st.subheader("📊 비용 구성 차트")
-        chart_data = pd.DataFrame({
-            "항목": ["기계비용", "전기요금", "냉각수비용"],
-            "금액": [monthly_fixed_cost, electricity_cost, water_cost]
