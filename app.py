@@ -101,6 +101,3 @@ try:
             "금액": [monthly_fixed_cost, electricity_cost, water_cost]
         })
         st.bar_chart(chart_data.set_index("항목"))
-
-    else:
-        st.warning("MME(설비전력) 시트에서 '날짜' 열을 찾을 수 없습니다.")
