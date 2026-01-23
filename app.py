@@ -2,100 +2,110 @@ import streamlit as st
 import pandas as pd
 import urllib.parse
 
+# 1. 페이지 설정
 st.set_page_config(page_title="공장 소성 비용 분석기", layout="wide")
 st.title("🏭 진공로 소성 비용 통합 대시보드")
 
-# 1. 시트 ID 설정 (여기에 본인의 시트 ID를 넣어주세요)
+# ---------------------------------------------------------
+# [중요] 시트 ID 설정
+# 본인의 구글 시트 주소에서 d/ 와 /edit 사이에 있는 ID만 입력하세요.
 SHEET_ID = "1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY" 
+# ---------------------------------------------------------
 
 def load_sheet(sheet_name):
-    # 한글 탭 이름도 안전하게 가져오는 주소 생성
+    """구글 시트의 특정 탭을 CSV로 가져오는 함수"""
+    # 탭 이름에 공백이나 특수문자가 있어도 처리 가능하도록 인코딩
     safe_name = urllib.parse.quote(sheet_name)
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&sheet={safe_name}"
     return pd.read_csv(url)
 
 try:
-    # 2. 데이터 로드 (시트의 탭 이름과 일치해야 합니다)
-    # 업로드하신 파일명 기반으로 추측한 탭 이름: Machines, Waterlogs, MME
+    # 2. 데이터 로드 (업로드한 파일 구조 반영)
+    # 탭 이름: Machines, Waterlogs, MME
     df_machines = load_sheet("설비")
     df_water = load_sheet("냉각수")
     df_energy = load_sheet("설비전력")
 
-    # 3. 컬럼 이름 표준화 (한글/영어 섞인 것을 통일)
-    # 설비 시트: '취득원가' -> 'price'
-    df_machines = df_machines.rename(columns={'취득원가': 'price'})
-    
-    # 전력 시트: '날짜' -> 'date', '사용량' -> 'amount'
-    df_energy = df_energy.rename(columns={'날짜': 'date', '사용량': 'amount'})
-    
-    # 냉각수 시트: 'date'와 'water(m3)'는 그대로 사용
-
-    # 4. 데이터 전처리 (콤마 제거 및 숫자 변환)
+    # 3. 데이터 전처리 (콤마 제거 및 숫자 변환 함수)
     def clean_numeric(df, col_name):
         if col_name in df.columns:
+            # 문자열로 변환 후 콤마 제거 -> 숫자로 변환 (에러 발생 시 0 처리)
             df[col_name] = pd.to_numeric(df[col_name].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
         return df
 
-    df_machines = clean_numeric(df_machines, 'price')
-    df_energy = clean_numeric(df_energy, 'amount')
-    df_water = clean_numeric(df_water, 'water(m3)')
+    # 각 시트의 실제 열 이름에 맞춰 숫자 변환 적용
+    df_machines = clean_numeric(df_machines, '취득원가')   # 설비.csv
+    df_energy = clean_numeric(df_energy, '사용량')        # 설비전력.csv
+    df_water = clean_numeric(df_water, '사용량')       # 냉각수.csv
 
-    # 5. 비용 계산 로직
-    
-    # (1) 설비 고정비 (취득원가 합계 / 120개월)
-    monthly_fixed_cost = df_machines['price'].sum() / 120
+    # 4. 비용 계산 로직
 
-    # (2) 월별 변동비 계산
-    if 'date' in df_energy.columns:
-        # 날짜 목록 추출
-        available_months = df_energy['date'].dropna().unique()
+    # (1) 기계 감가상각비 (Machines 탭)
+    # 로직: '취득원가' 총합 나누기 120개월
+    if '취득원가' in df_machines.columns:
+        monthly_fixed_cost = df_machines['취득원가'].sum() / 120
+    else:
+        monthly_fixed_cost = 0
+
+    # (2) 전력비 및 냉각수비 (월별 계산)
+    # MME 탭의 '날짜' 컬럼을 기준으로 월을 선택
+    if '날짜' in df_energy.columns:
+        # 날짜 형식 통일 (YYYY-MM-DD -> YYYY-MM)
+        df_energy['날짜'] = pd.to_datetime(df_energy['날짜'], errors='coerce')
+        df_energy['월'] = df_energy['날짜'].dt.strftime('%Y-%m')
+        
+        # 사이드바에서 월 선택
+        available_months = df_energy['날짜'].dropna().unique()
         selected_month = st.sidebar.selectbox("분석할 월 선택", available_months)
         
-        # 선택된 월의 전력량 가져오기
-        energy_row = df_energy[df_energy['date'] == selected_month]
-        total_kwh = energy_row['amount'].iloc[0] if not energy_row.empty else 0
+        # 선택된 월의 데이터 필터링
+        energy_row = df_energy[df_energy['월'] == selected_month]
         
-        # 전기요금 계산 (전력량 * 125원)
+        # 전력 사용량 가져오기
+        total_kwh = energy_row['사용량'].iloc[0] if not energy_row.empty else 0
+        
+        # 전기요금 계산 (별도 요금 컬럼이 없으므로 단가 125원 적용)
         electricity_cost = total_kwh * 125
-        
-        # 냉각수 비용 계산
-        water_usage = 0
-        if 'date' in df_water.columns and 'water(m3)' in df_water.columns:
-            # 날짜 형식을 문자로 변환하여 매칭
-            df_water['date'] = df_water['date'].astype(str)
-            monthly_water = df_water[df_water['date'].str.contains(str(selected_month), na=False)]
-            water_usage = monthly_water['water(m3)'].sum()
-        
-        water_cost = water_usage * 1200 # 톤당 1200원
 
-        # 6. 결과 화면 출력
-        st.info(f"📅 분석 기간: **{selected_month}** | 전기료 단가: **125원/kWh** (추정)")
+        # (3) 냉각수 비용 계산 (Waterlogs 탭)
+        # Waterlogs 탭은 '날짜' 컬럼 사용 (영문)
+        water_cost = 0
+        water_usage = 0
         
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("기계 감가상각 (월)", f"{monthly_fixed_cost:,.0f} 원")
-        col2.metric("전력 사용량", f"{total_kwh:,.1f} kWh")
-        col3.metric("전기 요금 (추정)", f"{electricity_cost:,.0f} 원")
+        if 'date' in df_water.columns and 'water(m3)' in df_water.columns:
+            # 날짜를 문자열로 변환하여 'YYYY-MM' 매칭 확인
+            # 예: 2024-01-15 데이터에서 '2024-01'이 포함되어 있는지 확인
+            df_water['date_str'] = df_water['date'].astype(str)
+            monthly_water_data = df_water[df_water['date_str'].str.contains(selected_month, na=False)]
+            
+            # 해당 월의 사용량 합계
+            water_usage = monthly_water_data['water(m3)'].sum()
+            water_cost = water_usage * 1200 # 톤당 1,200원
+
+        # 5. 결과 대시보드 출력
+        st.divider()
+        st.info(f"📅 분석 기간: **{selected_month}**")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("기계 감가상각 (월)", f"{monthly_fixed_cost:,.0f} 원")
+        c2.metric("전력 사용량", f"{total_kwh:,.1f} kWh")
+        c3.metric("전기 요금 (추정)", f"{electricity_cost:,.0f} 원")
         
         total_cost = monthly_fixed_cost + electricity_cost + water_cost
-        col4.metric("💰 총 소성 비용", f"{total_cost:,.0f} 원")
+        c4.metric("💰 총 소성 비용", f"{total_cost:,.0f} 원")
 
-        # 7. 차트 시각화
-        st.divider()
+        # 6. 차트 시각화
         st.subheader("📊 비용 구성 차트")
         chart_data = pd.DataFrame({
-            "항목": ["기계감가상각", "전기요금", "냉각수비용"],
+            "항목": ["기계비용", "전기요금", "냉각수비용"],
             "금액": [monthly_fixed_cost, electricity_cost, water_cost]
         })
         st.bar_chart(chart_data.set_index("항목"))
 
-        # (옵션) 상세 데이터 보기
-        with st.expander("데이터 원본 보기"):
-            st.write("설비 목록", df_machines[['설비명', 'price']].head())
-            st.write("선택된 월 전력 데이터", energy_row)
-            
     else:
-        st.warning("전력 시트(MME)에서 '날짜' 컬럼을 찾을 수 없습니다.")
+        st.warning("MME(설비전력) 시트에서 '날짜' 열을 찾을 수 없습니다.")
 
 except Exception as e:
-    st.error(f"❌ 데이터 연결 오류: {e}")
-    st.info("Tip: 시트 ID가 정확한지, 탭 이름(Machines, Waterlogs, MME)이 시트와 일치하는지 확인해주세요.")
+    # 확인되지 않은 추측성 에러 메시지는 제거하고, 실제 발생한 에러만 출력합니다.
+    st.error(f"❌ 오류 발생: {e}")
+    st.write("구글 시트의
