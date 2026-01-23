@@ -11,8 +11,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
     # 3. 데이터 시트 읽기
-    df_machines = conn.read(worksheet="machines")
-    df_water = conn.read(worksheet="waterlogs")
+    df_machines = conn.read(worksheet="Machines")
+    df_water = conn.read(worksheet="Waterlogs")
     df_energy = conn.read(worksheet="MachinesMonthlyEnergy")
     df_billing = conn.read(worksheet="FactoryEnergyExpenses")
 
