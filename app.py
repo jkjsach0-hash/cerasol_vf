@@ -107,5 +107,3 @@ try:
 
 except Exception as e:
     # 확인되지 않은 추측성 에러 메시지는 제거하고, 실제 발생한 에러만 출력합니다.
-    st.error(f"❌ 오류 발생: {e}")
-    st.write("구글 시트의
