@@ -22,7 +22,7 @@ try:
     df = load_data()
     
     # 필수 컬럼 확인
-    required_cols = ['설비명', '취득원가', '구입일자', '내용연수']
+    required_cols = ['설비코드', '설비명', '구입일자', '취득원가']
     if not all(col in df.columns for col in required_cols):
         st.error(f"시트에서 다음 컬럼을 찾을 수 없습니다: {required_cols}")
         st.stop()
