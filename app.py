@@ -19,7 +19,7 @@ URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z
 
 # [시트3] 설비전력 시트 (월별 데이터) 
 # ⚠️ 전력 시트의 GID 숫자를 꼭 확인해서 바꿔주세요!
-URL_POWER = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=1442513579" 
+URL_POWER = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1442513579" 
 
 @st.cache_data(ttl=600)
 def load_data(url):
