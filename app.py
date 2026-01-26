@@ -56,13 +56,13 @@ st.title("🏭 공장 운영 관리 시스템")
 # 4. 데이터 로드 설정 (⚠️ 본인 링크로 수정 필수)
 # -----------------------------------------------------------------------------
 # [시트1] 설비 시트
-URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=0"
+URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
 
 # [시트2] 냉각수 시트
-URL_COOLING = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=11111111" 
+URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1052812012" 
 
 # [시트3] 설비전력 시트
-URL_POWER = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=22222222" 
+URL_POWER = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1442513579" 
 
 @st.cache_data(ttl=600)
 def load_data(url):
