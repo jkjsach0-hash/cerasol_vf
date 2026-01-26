@@ -12,7 +12,7 @@ st.title("🏭 공장 운영 관리 시스템")
 # 2. 데이터 로드 설정 (여기에 링크를 넣어주세요!)
 # -----------------------------------------------------------------------------
 # [시트1] 설비 시트 (gid=0 보통 첫번째 시트)
-URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
+URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/edit?gid=0#gid=0export?format=csv&gid=0"
 
 # [시트2] 냉각수 시트 (gid=숫자 확인 필수!)
 # 시트 아래 탭에서 '냉각수' 시트를 누른 뒤, 주소창 끝에 있는 gid 숫자를 확인하세요.
