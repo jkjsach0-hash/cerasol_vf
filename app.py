@@ -12,11 +12,11 @@ st.title("🏭 공장 운영 관리 시스템")
 # 2. 데이터 로드 설정 (여기에 링크를 넣어주세요!)
 # -----------------------------------------------------------------------------
 # [시트1] 설비 시트 (gid=0 보통 첫번째 시트)
-URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/edit?gid=0#gid=0export?format=csv&gid=0"
+URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/edit?gid=0#gid=0/export?format=csv&gid=0"
 
 # [시트2] 냉각수 시트 (gid=숫자 확인 필수!)
 # 시트 아래 탭에서 '냉각수' 시트를 누른 뒤, 주소창 끝에 있는 gid 숫자를 확인하세요.
-URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=12345678" 
+URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/edit?gid=1052812012#gid=1052812012/export?format=csv&gid=12345678" 
 
 
 @st.cache_data(ttl=600)
@@ -82,3 +82,63 @@ with tab1:
             c3.metric("연간 총 적립 필요액", f"{df_eq['연간적립액'].sum():,.0f} 원")
             
             st.divider()
+            
+            # 테이블 표시
+            show_df = df_eq.copy()
+            show_df['구입일자'] = show_df['구입일자'].dt.strftime('%Y-%m-%d')
+            st.dataframe(
+                show_df[['설비명', '구입일자', '취득원가', '현재잔액', '올해말잔가', '연간적립액']].style.format("{:,.0f}", subset=['취득원가', '현재잔액', '올해말잔가', '연간적립액']),
+                use_container_width=True,
+                hide_index=True
+            )
+
+
+# =============================================================================
+# [탭 2] 냉각수 관리
+# =============================================================================
+with tab2:
+    st.markdown("### 📅 월별 냉각수 사용량 집계")
+    
+    df_cool = load_data(URL_COOLING)
+    
+    if df_cool is None:
+        st.info("냉각수 데이터를 불러올 수 없습니다. 링크와 GID를 확인해주세요.")
+    else:
+        # 필수 컬럼 체크
+        req_cols_cool = ['날짜', '사용량']
+        if not all(col in df_cool.columns for col in req_cols_cool):
+             st.error(f"냉각수 시트 컬럼 오류. 시트에 {req_cols_cool} 컬럼이 있어야 합니다.")
+        else:
+            # 1. 날짜 처리
+            df_cool['날짜'] = pd.to_datetime(df_cool['날짜'], errors='coerce')
+            df_cool = df_cool.dropna(subset=['날짜']) # 날짜 없는 행 제거
+            
+            # 2. 월별 그룹화 ('YYYY-MM' 형식으로 변환 후 그룹핑)
+            df_cool['월'] = df_cool['날짜'].dt.strftime('%Y-%m')
+            
+            # 월별 합계 계산 (reset_index로 데이터프레임 형태 유지)
+            monthly_df = df_cool.groupby('월')['사용량'].sum().reset_index()
+            monthly_df = monthly_df.sort_values('월') # 과거 -> 최신 순 정렬
+            
+            # 3. 화면 구성
+            col_metrics, col_chart = st.columns([1, 2])
+            
+            with col_metrics:
+                st.write("📋 **월별 상세표**")
+                # 가장 최근 달 데이터 강조
+                if not monthly_df.empty:
+                    last_month = monthly_df.iloc[-1]
+                    st.metric(label=f"{last_month['월']} 사용량", value=f"{last_month['사용량']:,.0f}")
+                
+                st.dataframe(
+                    monthly_df.style.format({'사용량': '{:,.0f}'}), 
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+            with col_chart:
+                st.write("📊 **사용량 추이**")
+                if not monthly_df.empty:
+                    st.bar_chart(monthly_df.set_index('월')['사용량'])
+                else:
+                    st.write("표시할 데이터가 없습니다.")
