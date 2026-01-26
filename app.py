@@ -16,7 +16,7 @@ URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG
 
 # [시트2] 냉각수 시트 (gid=숫자 확인 필수!)
 # 시트 아래 탭에서 '냉각수' 시트를 누른 뒤, 주소창 끝에 있는 gid 숫자를 확인하세요.
-URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=12345678" 
+URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1" 
 
 
 @st.cache_data(ttl=600)
