@@ -9,13 +9,17 @@ st.set_page_config(page_title="공장 비용 관리", layout="wide")
 st.title("🏭 공장 운영 관리 시스템")
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 설정 (⚠️ 본인 링크로 수정 필수)
+# 2. 데이터 로드 설정 (⚠️ 링크 3개 모두 본인의 것으로 수정 필수)
 # -----------------------------------------------------------------------------
-# [시트1] 설비 시트
+# [시트1] 설비 시트 (보통 gid=0)
 URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
 
-# [시트2] 냉각수 시트
+# [시트2] 냉각수 시트 (일별 데이터)
 URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1052812012" 
+
+# [시트3] 설비전력 시트 (월별 데이터) 
+# ⚠️ 전력 시트의 GID 숫자를 꼭 확인해서 바꿔주세요!
+URL_POWER = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=1442513579" 
 
 @st.cache_data(ttl=600)
 def load_data(url):
@@ -26,12 +30,12 @@ def load_data(url):
         return None
 
 # -----------------------------------------------------------------------------
-# 3. 탭 구성
+# 3. 탭 구성 (3개로 확장)
 # -----------------------------------------------------------------------------
-tab1, tab2 = st.tabs(["🏭 설비 감가상각", "💧 냉각수 관리"])
+tab1, tab2, tab3 = st.tabs(["🏭 설비 감가상각", "💧 냉각수 관리", "⚡ 설비 전력"])
 
 # =============================================================================
-# [탭 1] 설비 관리 (기존 내용 유지)
+# [탭 1] 설비 관리
 # =============================================================================
 with tab1:
     st.markdown("### 설비별 감가상각 및 재구입 비용")
@@ -75,9 +79,11 @@ with tab1:
                 use_container_width=True, hide_index=True
             )
 
+# =============================================================================
+# [탭 2] 냉각수 관리
+# =============================================================================
 with tab2:
-    st.markdown("### 📊 연도별 냉각수 사용량 추이 및 비교")
-    
+    st.markdown("### 📊 연도별 냉각수 사용량 추이")
     df_cool = load_data(URL_COOLING)
     
     if df_cool is None:
@@ -86,47 +92,47 @@ with tab2:
         if '날짜' not in df_cool.columns or '사용량' not in df_cool.columns:
              st.error("컬럼 오류: '날짜', '사용량' 컬럼이 필요합니다.")
         else:
-            # 1. 데이터 전처리
             df_cool['날짜'] = pd.to_datetime(df_cool['날짜'], errors='coerce')
             df_cool = df_cool.dropna(subset=['날짜'])
-            
             df_cool['연도'] = df_cool['날짜'].dt.year
             df_cool['월'] = df_cool['날짜'].dt.month
             
-            # 2. 피벗 데이터 생성 (차트용: 인덱스=월, 컬럼=연도)
-            pivot_data = df_cool.pivot_table(index='월', columns='연도', values='사용량', aggfunc='sum')
-            pivot_data = pivot_data.reindex(range(1, 13), fill_value=0) # 1~12월 강제 고정
+            pivot_cool = df_cool.pivot_table(index='월', columns='연도', values='사용량', aggfunc='sum')
+            pivot_cool = pivot_cool.reindex(range(1, 13), fill_value=0)
             
-            # 3. KPI (연간 총 사용량)
-            years = pivot_data.columns.tolist()
+            years = pivot_cool.columns.tolist()
             cols = st.columns(len(years))
             for i, year in enumerate(years):
-                total_usage = pivot_data[year].sum()
                 with cols[i]:
-                    st.metric(label=f"{year}년 총 사용량", value=f"{total_usage:,.0f}")
+                    st.metric(f"{year}년 총 사용량", f"{pivot_cool[year].sum():,.0f}")
             
             st.divider()
-
-            # 4. 비교 그래프 (차트는 월별 흐름을 봐야 하므로 기존 축 유지)
-            st.subheader("📈 연도별 월간 추이 그래프")
-            st.line_chart(pivot_data)
-            
+            st.subheader("📈 연도별 월간 그래프")
+            st.line_chart(pivot_cool)
             st.markdown("---")
+            st.subheader("📋 연도별 상세 비교표")
+            
+            table_cool = pivot_cool.T
+            table_cool.columns = [f"{m}월" for m in table_cool.columns]
+            table_cool.index = [f"{y}년" for y in table_cool.index]
+            
+            st.dataframe(table_cool.style.format("{:,.0f}").highlight_max(axis=0, color='#FFDDC1'), use_container_width=True)
 
-            # 5. 상세 비교표 (✨요청사항 적용: 행=연도, 열=월)
-            st.subheader("📋 연도별 월간 상세 비교표")
-            
-            # 행과 열을 뒤집습니다 (.T : Transpose)
-            table_df = pivot_data.T
-            
-            # 컬럼명 (1, 2, 3...) -> (1월, 2월, 3월...)
-            table_df.columns = [f"{m}월" for m in table_df.columns]
-            
-            # 행 인덱스 (2023, 2024...) -> (2023년, 2024년...)
-            table_df.index = [f"{y}년" for y in table_df.index]
-            
-            # 테이블 표시 (highlight_max(axis=0) : 세로로 비교했을 때(같은 월끼리) 가장 큰 값 강조)
-            st.dataframe(
-                table_df.style.format("{:,.0f}").highlight_max(axis=0, color='#FFDDC1'),
-                use_container_width=True
-            )
+# =============================================================================
+# [탭 3] 설비 전력 (신규 추가)
+# =============================================================================
+with tab3:
+    st.markdown("### ⚡ 연도별 전력 사용량 추이")
+    
+    df_power = load_data(URL_POWER)
+    
+    if df_power is None:
+        st.info("설비 전력 데이터를 불러올 수 없습니다. 링크와 GID를 확인하세요.")
+    else:
+        # 컬럼 확인
+        if '날짜' not in df_power.columns or '사용량' not in df_power.columns:
+             st.error("컬럼 오류: 전력 시트에도 '날짜'와 '사용량' 컬럼이 있어야 합니다.")
+        else:
+            # 1. 데이터 전처리
+            df_power['날짜'] = pd.to_datetime(df_power['날짜'], errors='coerce')
+            df_power
