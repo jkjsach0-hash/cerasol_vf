@@ -5,24 +5,21 @@ from datetime import datetime
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="소성 비용 및 설비 관리", layout="wide")
+st.set_page_config(page_title="공장 비용 관리", layout="wide")
 st.title("🏭 공장 운영 관리 시스템")
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 설정 (여기에 링크를 넣어주세요!)
+# 2. 데이터 로드 설정 (링크 입력 필요)
 # -----------------------------------------------------------------------------
-# [시트1] 설비 시트 (gid=0 보통 첫번째 시트)
+# [시트1] 설비 시트 (gid=0)
 URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
 
-# [시트2] 냉각수 시트 (gid=숫자 확인 필수!)
-# 시트 아래 탭에서 '냉각수' 시트를 누른 뒤, 주소창 끝에 있는 gid 숫자를 확인하세요.
+# [시트2] 냉각수 시트 (gid 확인 필수)
 URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1052812012" 
-
 
 @st.cache_data(ttl=600)
 def load_data(url):
     try:
-        # thousands=',' : 숫자 쉼표 자동 제거 (천단위 구분자 처리)
         df = pd.read_csv(url, thousands=',')
         return df
     except Exception:
@@ -31,114 +28,45 @@ def load_data(url):
 # -----------------------------------------------------------------------------
 # 3. 탭 구성
 # -----------------------------------------------------------------------------
-tab1, tab2 = st.tabs(["🏭 설비 감가상각", "💧 냉각수 사용량"])
-
+tab1, tab2 = st.tabs(["🏭 설비 감가상각", "💧 냉각수 관리"])
 
 # =============================================================================
-# [탭 1] 설비 관리
+# [탭 1] 설비 관리 (기존 유지)
 # =============================================================================
 with tab1:
-    st.markdown("### 설비별 감가상각 및 재구입 비용 (내용연수 10년)")
-    
+    st.markdown("### 설비별 감가상각 및 재구입 비용")
     df_eq = load_data(URL_EQUIPMENT)
     
     if df_eq is None:
-        st.error("설비 데이터를 불러올 수 없습니다. 링크를 확인해주세요.")
+        st.error("설비 데이터를 불러올 수 없습니다.")
     else:
-        # 필수 컬럼 체크
         req_cols_eq = ['설비코드', '설비명', '구입일자', '취득원가']
         if not all(col in df_eq.columns for col in req_cols_eq):
-            st.error(f"설비 시트 필수 컬럼 누락: {req_cols_eq}")
+            st.error(f"필수 컬럼 누락: {req_cols_eq}")
         else:
-            # 날짜 변환 및 계산
             df_eq['구입일자'] = pd.to_datetime(df_eq['구입일자'], errors='coerce')
-            
             today = datetime.now()
             end_of_year = datetime(today.year, 12, 31)
             FIXED_LIFE = 10
             
             def calc_metrics(row):
                 if pd.isna(row['구입일자']): return pd.Series([0, 0, 0])
-                
                 cost = row['취득원가']
                 dep_yearly = cost / FIXED_LIFE
-                
-                # 경과 연수
                 days_passed = (today - row['구입일자']).days
                 curr_val = max(cost - (dep_yearly * (days_passed / 365.0)), 0)
-                
-                # 올해 말 기준
                 days_eoy = (end_of_year - row['구입일자']).days
                 eoy_val = max(cost - (dep_yearly * (days_eoy / 365.0)), 0)
-                
                 return pd.Series([curr_val, eoy_val, dep_yearly])
 
             df_eq[['현재잔액', '올해말잔가', '연간적립액']] = df_eq.apply(calc_metrics, axis=1)
             
-            # 요약 지표
             c1, c2, c3 = st.columns(3)
             c1.metric("총 취득 원가", f"{df_eq['취득원가'].sum():,.0f} 원")
             c2.metric("현재 장부가 총액", f"{df_eq['현재잔액'].sum():,.0f} 원")
-            c3.metric("연간 총 적립 필요액", f"{df_eq['연간적립액'].sum():,.0f} 원")
+            c3.metric("올해 적립 필요액", f"{df_eq['연간적립액'].sum():,.0f} 원")
             
             st.divider()
             
-            # 테이블 표시
             show_df = df_eq.copy()
-            show_df['구입일자'] = show_df['구입일자'].dt.strftime('%Y-%m-%d')
-            st.dataframe(
-                show_df[['설비명', '구입일자', '취득원가', '현재잔액', '올해말잔가', '연간적립액']].style.format("{:,.0f}", subset=['취득원가', '현재잔액', '올해말잔가', '연간적립액']),
-                use_container_width=True,
-                hide_index=True
-            )
-
-
-# =============================================================================
-# [탭 2] 냉각수 관리
-# =============================================================================
-with tab2:
-    st.markdown("### 📅 월별 냉각수 사용량 집계")
-    
-    df_cool = load_data(URL_COOLING)
-    
-    if df_cool is None:
-        st.info("냉각수 데이터를 불러올 수 없습니다. 링크와 GID를 확인해주세요.")
-    else:
-        # 필수 컬럼 체크
-        req_cols_cool = ['날짜', '사용량']
-        if not all(col in df_cool.columns for col in req_cols_cool):
-             st.error(f"냉각수 시트 컬럼 오류. 시트에 {req_cols_cool} 컬럼이 있어야 합니다.")
-        else:
-            # 1. 날짜 처리
-            df_cool['날짜'] = pd.to_datetime(df_cool['날짜'], errors='coerce')
-            df_cool = df_cool.dropna(subset=['날짜']) # 날짜 없는 행 제거
-            
-            # 2. 월별 그룹화 ('YYYY-MM' 형식으로 변환 후 그룹핑)
-            df_cool['월'] = df_cool['날짜'].dt.strftime('%Y-%m')
-            
-            # 월별 합계 계산 (reset_index로 데이터프레임 형태 유지)
-            monthly_df = df_cool.groupby('월')['사용량'].sum().reset_index()
-            monthly_df = monthly_df.sort_values('월') # 과거 -> 최신 순 정렬
-            
-            # 3. 화면 구성
-            col_metrics, col_chart = st.columns([1, 2])
-            
-            with col_metrics:
-                st.write("📋 **월별 상세표**")
-                # 가장 최근 달 데이터 강조
-                if not monthly_df.empty:
-                    last_month = monthly_df.iloc[-1]
-                    st.metric(label=f"{last_month['월']} 사용량", value=f"{last_month['사용량']:,.0f}")
-                
-                st.dataframe(
-                    monthly_df.style.format({'사용량': '{:,.0f}'}), 
-                    use_container_width=True,
-                    hide_index=True
-                )
-                
-            with col_chart:
-                st.write("📊 **사용량 추이**")
-                if not monthly_df.empty:
-                    st.bar_chart(monthly_df.set_index('월')['사용량'])
-                else:
-                    st.write("표시할 데이터가 없습니다.")
+            show_df['구입일자'] = show_df['구입일자'].dt
