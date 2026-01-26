@@ -69,4 +69,97 @@ with tab1:
             st.divider()
             
             show_df = df_eq.copy()
-            show_df['구입일자'] = show_df['구입일자'].dt
+            show_df['구입일자'] = show_df['구입일자'].dt.strftime('%Y-%m-%d')
+            st.dataframe(
+                show_df[['설비명', '구입일자', '취득원가', '현재잔액', '올해말잔가', '연간적립액']].style.format("{:,.0f}", subset=['취득원가', '현재잔액', '올해말잔가', '연간적립액']),
+                use_container_width=True, hide_index=True
+            )
+
+# =============================================================================
+# [탭 2] 냉각수 관리 (업그레이드: 전년 vs 금년 비교)
+# =============================================================================
+with tab2:
+    st.markdown("### 📊 연도별 냉각수 사용량 비교")
+    
+    df_cool = load_data(URL_COOLING)
+    
+    if df_cool is None:
+        st.info("데이터 로드 실패. 링크와 GID를 확인하세요.")
+    else:
+        req_cols_cool = ['날짜', '사용량']
+        if not all(col in df_cool.columns for col in req_cols_cool):
+             st.error("컬럼 오류: '날짜', '사용량' 컬럼이 필요합니다.")
+        else:
+            # 1. 데이터 전처리
+            df_cool['날짜'] = pd.to_datetime(df_cool['날짜'], errors='coerce')
+            df_cool = df_cool.dropna(subset=['날짜'])
+            
+            # 연도와 월 추출
+            df_cool['연도'] = df_cool['날짜'].dt.year
+            df_cool['월'] = df_cool['날짜'].dt.month
+            
+            # 2. 현재 연도와 전년도 설정
+            current_year = datetime.now().year
+            prev_year = current_year - 1
+            
+            # 3. 데이터 분리 및 집계
+            df_yearly = df_cool.groupby('연도')['사용량'].sum()
+            
+            usage_this_year = df_yearly.get(current_year, 0)
+            usage_prev_year = df_yearly.get(prev_year, 0)
+            
+            # 증감 계산
+            delta = usage_this_year - usage_prev_year
+            
+            # --- 상단 지표 (Metrics) ---
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                st.metric(label=f"{current_year}년 총 사용량 (현재까지)", 
+                          value=f"{usage_this_year:,.0f}", 
+                          delta=f"{delta:,.0f} (전년 총합 대비)", delta_color="off")
+            with m2:
+                st.metric(label=f"{prev_year}년 총 사용량", 
+                          value=f"{usage_prev_year:,.0f}")
+            with m3:
+                # 전년 동기간 대비 비교 (데이터가 충분할 경우 더 정확하겠지만 여기선 단순 비교)
+                if usage_prev_year > 0:
+                    ratio = (usage_this_year / usage_prev_year) * 100
+                    st.metric(label="전년 대비 비율", value=f"{ratio:.1f}%")
+
+            st.divider()
+
+            # 4. 차트용 데이터 가공 (Pivot)
+            # 인덱스: 1~12월, 컬럼: 연도, 값: 사용량 합계
+            pivot_df = df_cool.pivot_table(index='월', columns='연도', values='사용량', aggfunc='sum')
+            
+            # 차트에 모든 월(1~12)이 표시되도록 빈 데이터 채우기
+            all_months = pd.DataFrame({'월': range(1, 13)}).set_index('월')
+            chart_data = all_months.join(pivot_df).fillna(0)
+            
+            # 필요한 연도만 선택 (전년, 금년) - 데이터가 없어도 에러 안 나게 처리
+            cols_to_show = []
+            if prev_year in chart_data.columns: cols_to_show.append(prev_year)
+            if current_year in chart_data.columns: cols_to_show.append(current_year)
+            
+            final_chart_data = chart_data[cols_to_show]
+
+            # --- 메인 화면 분할 (왼쪽: 차트, 오른쪽: 상세표) ---
+            col_chart, col_table = st.columns([2, 1])
+            
+            with col_chart:
+                st.subheader(f"📈 {prev_year}년 vs {current_year}년 월별 비교")
+                # 스트림릿 내장 라인 차트 (색상으로 연도 구분)
+                st.line_chart(final_chart_data)
+                st.caption("💡 팁: 차트 위에 마우스를 올리면 상세 수치를 볼 수 있습니다.")
+
+            with col_table:
+                st.subheader("📋 월별 상세 데이터")
+                # 보기 좋게 포맷팅
+                display_table = final_chart_data.copy()
+                # 컬럼 이름을 문자열로 변환 (2024 -> "2024년")
+                display_table.columns = [f"{c}년" for c in display_table.columns]
+                
+                st.dataframe(
+                    display_table.style.format("{:,.0f}"),
+                    use_container_width=True
+                )
