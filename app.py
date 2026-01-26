@@ -1,24 +1,68 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import time
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정
+# 1. 페이지 설정 (가장 먼저 실행되어야 함)
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="공장 비용 관리", layout="wide")
+
+# -----------------------------------------------------------------------------
+# 2. 비밀번호 인증 함수
+# -----------------------------------------------------------------------------
+def check_password():
+    """비밀번호가 맞는지 확인하는 함수"""
+    
+    # 세션에 인증 완료 기록이 없으면
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    # 인증이 완료된 상태라면 True 반환
+    if st.session_state["password_correct"]:
+        return True
+
+    # 화면에 로그인 창 표시
+    st.title("🔒 로그인")
+    st.write("관계자 외 접근 금지 구역입니다.")
+    
+    password_input = st.text_input("비밀번호를 입력하세요", type="password")
+    
+    if st.button("접속"):
+        # secrets.toml에 설정한 비밀번호와 비교
+        if password_input == st.secrets["password"]:
+            st.session_state["password_correct"] = True
+            st.success("인증 성공! 시스템에 접속합니다...")
+            time.sleep(1) # 잠시 대기 후 리로드
+            st.rerun()
+        else:
+            st.error("비밀번호가 올바르지 않습니다.")
+            
+    return False
+
+# -----------------------------------------------------------------------------
+# 3. 메인 로직 실행 (로그인 통과 시에만 실행됨)
+# -----------------------------------------------------------------------------
+if not check_password():
+    st.stop()  # 비밀번호가 틀리거나 입력 전이면 여기서 코드 실행 중단
+
+# =============================================================================
+# ▼ 여기서부터는 로그인 성공 시에만 보이는 화면입니다 ▼
+# =============================================================================
+
 st.title("🏭 공장 운영 관리 시스템")
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 설정 (⚠️ 링크 수정 필수)
+# 4. 데이터 로드 설정 (⚠️ 본인 링크로 수정 필수)
 # -----------------------------------------------------------------------------
 # [시트1] 설비 시트
-URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
+URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=0"
 
-# [시트2] 냉각수 시트 (일별 데이터)
-URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1052812012" 
+# [시트2] 냉각수 시트
+URL_COOLING = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=11111111" 
 
-# [시트3] 설비전력 시트 (월별 데이터)
-URL_POWER = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1442513579" 
+# [시트3] 설비전력 시트
+URL_POWER = "https://docs.google.com/spreadsheets/d/본인의_시트ID/export?format=csv&gid=22222222" 
 
 @st.cache_data(ttl=600)
 def load_data(url):
