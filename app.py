@@ -9,16 +9,15 @@ st.set_page_config(page_title="공장 비용 관리", layout="wide")
 st.title("🏭 공장 운영 관리 시스템")
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 설정 (⚠️ 링크 3개 모두 본인의 것으로 수정 필수)
+# 2. 데이터 로드 설정 (⚠️ 링크 수정 필수)
 # -----------------------------------------------------------------------------
-# [시트1] 설비 시트 (보통 gid=0)
+# [시트1] 설비 시트
 URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
 
 # [시트2] 냉각수 시트 (일별 데이터)
 URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1052812012" 
 
-# [시트3] 설비전력 시트 (월별 데이터) 
-# ⚠️ 전력 시트의 GID 숫자를 꼭 확인해서 바꿔주세요!
+# [시트3] 설비전력 시트 (월별 데이터)
 URL_POWER = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1442513579" 
 
 @st.cache_data(ttl=600)
@@ -30,7 +29,7 @@ def load_data(url):
         return None
 
 # -----------------------------------------------------------------------------
-# 3. 탭 구성 (3개로 확장)
+# 3. 탭 구성
 # -----------------------------------------------------------------------------
 tab1, tab2, tab3 = st.tabs(["🏭 설비 감가상각", "💧 냉각수 관리", "⚡ 설비 전력"])
 
@@ -97,29 +96,44 @@ with tab2:
             df_cool['연도'] = df_cool['날짜'].dt.year
             df_cool['월'] = df_cool['날짜'].dt.month
             
+            # 피벗 (차트용: 인덱스=월, 컬럼=연도)
             pivot_cool = df_cool.pivot_table(index='월', columns='연도', values='사용량', aggfunc='sum')
             pivot_cool = pivot_cool.reindex(range(1, 13), fill_value=0)
             
+            # KPI
             years = pivot_cool.columns.tolist()
-            cols = st.columns(len(years))
-            for i, year in enumerate(years):
-                with cols[i]:
-                    st.metric(f"{year}년 총 사용량", f"{pivot_cool[year].sum():,.0f}")
+            if years:
+                cols = st.columns(len(years))
+                for i, year in enumerate(years):
+                    with cols[i]:
+                        st.metric(f"{year}년 총 사용량", f"{pivot_cool[year].sum():,.0f}")
             
             st.divider()
             st.subheader("📈 연도별 월간 그래프")
             st.line_chart(pivot_cool)
             st.markdown("---")
-            st.subheader("📋 연도별 상세 비교표")
             
+            st.subheader("📋 연도별 상세 비교표 (합계 포함)")
+            # 행(연도), 열(월)로 변환
             table_cool = pivot_cool.T
-            table_cool.columns = [f"{m}월" for m in table_cool.columns]
+            
+            # [추가 기능] 합계 컬럼 생성
+            table_cool['합계'] = table_cool.sum(axis=1)
+            
+            # 컬럼명 정리: 숫자 -> "1월", "합계" -> "합계"
+            new_cols = []
+            for c in table_cool.columns:
+                if c == '합계': new_cols.append('합계')
+                else: new_cols.append(f"{c}월")
+            table_cool.columns = new_cols
+            
+            # 인덱스 정리
             table_cool.index = [f"{y}년" for y in table_cool.index]
             
             st.dataframe(table_cool.style.format("{:,.0f}").highlight_max(axis=0, color='#FFDDC1'), use_container_width=True)
 
 # =============================================================================
-# [탭 3] 설비 전력 (신규 추가)
+# [탭 3] 설비 전력
 # =============================================================================
 with tab3:
     st.markdown("### ⚡ 연도별 전력 사용량 추이")
@@ -129,10 +143,51 @@ with tab3:
     if df_power is None:
         st.info("설비 전력 데이터를 불러올 수 없습니다. 링크와 GID를 확인하세요.")
     else:
-        # 컬럼 확인
         if '날짜' not in df_power.columns or '사용량' not in df_power.columns:
-             st.error("컬럼 오류: 전력 시트에도 '날짜'와 '사용량' 컬럼이 있어야 합니다.")
+             st.error("컬럼 오류: '날짜', '사용량' 컬럼이 있어야 합니다.")
         else:
-            # 1. 데이터 전처리
             df_power['날짜'] = pd.to_datetime(df_power['날짜'], errors='coerce')
-            df_power
+            df_power = df_power.dropna(subset=['날짜'])
+            
+            df_power['연도'] = df_power['날짜'].dt.year
+            df_power['월'] = df_power['날짜'].dt.month
+            
+            # 피벗 (차트용)
+            pivot_power = df_power.pivot_table(index='월', columns='연도', values='사용량', aggfunc='sum')
+            pivot_power = pivot_power.reindex(range(1, 13), fill_value=0)
+            
+            # KPI
+            years_p = pivot_power.columns.tolist()
+            if years_p:
+                cols_p = st.columns(len(years_p))
+                for i, year in enumerate(years_p):
+                    with cols_p[i]:
+                        st.metric(f"{year}년 총 전력량", f"{pivot_power[year].sum():,.0f} kWh")
+            
+            st.divider()
+            
+            st.subheader("📈 전력 사용량 그래프")
+            st.line_chart(pivot_power)
+            
+            st.markdown("---")
+            
+            st.subheader("📋 전력 상세 비교표 (합계 포함)")
+            # 행(연도), 열(월)로 변환
+            table_power = pivot_power.T
+            
+            # [추가 기능] 합계 컬럼 생성
+            table_power['합계'] = table_power.sum(axis=1)
+            
+            # 컬럼명 정리
+            new_cols_p = []
+            for c in table_power.columns:
+                if c == '합계': new_cols_p.append('합계')
+                else: new_cols_p.append(f"{c}월")
+            table_power.columns = new_cols_p
+            
+            table_power.index = [f"{y}년" for y in table_power.index]
+            
+            st.dataframe(
+                table_power.style.format("{:,.0f}").highlight_max(axis=0, color='#D4F1F4'), 
+                use_container_width=True
+            )
