@@ -69,4 +69,59 @@ def calculate_metrics(row):
     # 4. 올해 말 기준 예상 잔가
     days_until_eoy = (end_of_year - buy_date).days
     years_until_eoy = days_until_eoy / 365.0
-    eoy_book_value = max(cost - (
+    eoy_book_value = max(cost - (depreciation_per_year * years_until_eoy), 0)
+    
+    # 5. 재구입 적립 필요 비용 (연간 감가상각비와 동일)
+    replacement_fund_yearly = depreciation_per_year
+
+    return pd.Series([current_book_value, eoy_book_value, replacement_fund_yearly])
+
+# 계산 실행
+df[['현재잔액', '올해말잔가', '연간적립필요액']] = df.apply(calculate_metrics, axis=1)
+
+# -----------------------------------------------------------------------------
+# 4. 화면 UI 구성
+# -----------------------------------------------------------------------------
+
+# [섹션 1] 요약 지표
+st.subheader("📊 전체 설비 요약")
+col1, col2, col3 = st.columns(3)
+
+total_acquisition = df['취득원가'].sum()
+total_current_value = df['현재잔액'].sum()
+total_yearly_fund = df['연간적립필요액'].sum()
+
+with col1:
+    st.metric("총 취득 원가", f"{total_acquisition:,.0f} 원")
+with col2:
+    st.metric("현재 설비 총 잔액", f"{total_current_value:,.0f} 원", 
+              delta=f"-{total_acquisition - total_current_value:,.0f} (감가상각 누계)")
+with col3:
+    st.metric("올해 적립 필요 총액", f"{total_yearly_fund:,.0f} 원",
+              help="10년 교체 주기를 가정했을 때 올해 적립해야 할 금액의 합계")
+
+st.divider()
+
+# [섹션 2] 상세 리스트
+st.subheader("📋 설비별 상세 현황")
+
+# 표시용 데이터 복사 및 포맷팅
+display_df = df.copy()
+display_df['구입일자'] = display_df['구입일자'].dt.strftime('%Y-%m-%d')
+
+def format_currency(x):
+    return f"{x:,.0f} 원"
+
+# 보여줄 컬럼 순서 지정
+cols_to_show = ['설비코드', '설비명', '구입일자', '취득원가', '현재잔액', '올해말잔가', '연간적립필요액']
+
+st.dataframe(
+    display_df[cols_to_show].style.format({
+        '취득원가': format_currency,
+        '현재잔액': format_currency,
+        '올해말잔가': format_currency,
+        '연간적립필요액': format_currency
+    }),
+    use_container_width=True,
+    hide_index=True
+)
