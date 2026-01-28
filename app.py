@@ -181,6 +181,7 @@ with tab2:
 # =============================================================================
 with tab3:
     st.markdown("### ⚡ 연도별 전력 사용량 추이")
+    st.info("💡 표시된 값은 기계 출력치에 단위값 80을 곱한 실제 전력소비량입니다.")
     
     df_power = load_data(URL_POWER)
     
@@ -193,11 +194,14 @@ with tab3:
             df_power['날짜'] = pd.to_datetime(df_power['날짜'], errors='coerce')
             df_power = df_power.dropna(subset=['날짜'])
             
+            # ⭐ 실제 전력소비량 계산: 기계 출력치 × 80
+            df_power['실제전력소비량'] = df_power['사용량'] * 80
+            
             df_power['연도'] = df_power['날짜'].dt.year
             df_power['월'] = df_power['날짜'].dt.month
             
-            # 피벗 (차트용)
-            pivot_power = df_power.pivot_table(index='월', columns='연도', values='사용량', aggfunc='sum')
+            # 피벗 (차트용) - 실제전력소비량 사용
+            pivot_power = df_power.pivot_table(index='월', columns='연도', values='실제전력소비량', aggfunc='sum')
             pivot_power = pivot_power.reindex(range(1, 13), fill_value=0)
             
             # KPI
