@@ -344,12 +344,30 @@ with tab2:
             st.subheader("📋 설비별 상세 내역")
             show_df = df_eq.copy()
             show_df['구입일자'] = show_df['구입일자'].dt.strftime('%Y-%m-%d')
-            st.dataframe(
+            
+            # 합계 행 추가
+            total_row = pd.DataFrame({
+                '설비명': ['✅ 합계'],
+                '구입일자': [''],
+                '취득원가': [df_eq['취득원가'].sum()],
+                '현재잔액': [df_eq['현재잔액'].sum()],
+                '올해말잔가': [df_eq['올해말잔가'].sum()],
+                '월간감가상각비': [df_eq['월간감가상각비'].sum()],
+                '월간유지보수충당금': [df_eq['월간유지보수충당금'].sum()],
+                '연간적립액': [df_eq['연간적립액'].sum()]
+            })
+            
+            display_df = pd.concat([
                 show_df[['설비명', '구입일자', '취득원가', '현재잔액', '올해말잔가', 
-                        '월간감가상각비', '월간유지보수충당금', '연간적립액']].style.format(
+                        '월간감가상각비', '월간유지보수충당금', '연간적립액']], 
+                total_row
+            ], ignore_index=True)
+            
+            st.dataframe(
+                display_df.style.format(
                     "{:,.0f}", 
                     subset=['취득원가', '현재잔액', '올해말잔가', '월간감가상각비', '월간유지보수충당금', '연간적립액']
-                ),
+                ).apply(lambda x: ['background-color: #E8F4F8' if x.name == len(display_df)-1 else '' for i in x], axis=1),
                 use_container_width=True, hide_index=True
             )
             
