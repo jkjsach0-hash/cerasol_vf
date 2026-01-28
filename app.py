@@ -254,6 +254,20 @@ with tab1:
 # =============================================================================
 with tab2:
     st.markdown("### 설비별 감가상각 및 재구입 비용")
+    
+    # 사이드바에 유지보수 비율 설정
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("🔧 유지보수 충당금 설정")
+        maintenance_rate = st.slider(
+            "취득원가 대비 연간 유지보수 비율 (%)", 
+            min_value=0.0, 
+            max_value=10.0, 
+            value=3.0, 
+            step=0.5,
+            help="일반적으로 취득원가의 2-5%를 유지보수 비용으로 책정합니다."
+        )
+    
     df_eq = load_data(URL_EQUIPMENT)
     
     if df_eq is None:
@@ -269,30 +283,77 @@ with tab2:
             FIXED_LIFE = 10
             
             def calc_metrics(row):
-                if pd.isna(row['구입일자']): return pd.Series([0, 0, 0])
+                if pd.isna(row['구입일자']): return pd.Series([0, 0, 0, 0, 0])
                 cost = row['취득원가']
                 dep_yearly = cost / FIXED_LIFE
+                dep_monthly = dep_yearly / 12
                 days_passed = (today - row['구입일자']).days
                 curr_val = max(cost - (dep_yearly * (days_passed / 365.0)), 0)
                 days_eoy = (end_of_year - row['구입일자']).days
                 eoy_val = max(cost - (dep_yearly * (days_eoy / 365.0)), 0)
-                return pd.Series([curr_val, eoy_val, dep_yearly])
+                
+                # 유지보수 충당금 계산
+                maintenance_yearly = cost * (maintenance_rate / 100)
+                maintenance_monthly = maintenance_yearly / 12
+                
+                return pd.Series([curr_val, eoy_val, dep_yearly, dep_monthly, maintenance_monthly])
 
-            df_eq[['현재잔액', '올해말잔가', '연간적립액']] = df_eq.apply(calc_metrics, axis=1)
+            df_eq[['현재잔액', '올해말잔가', '연간적립액', '월간감가상각비', '월간유지보수충당금']] = df_eq.apply(calc_metrics, axis=1)
             
-            c1, c2, c3 = st.columns(3)
+            # 상단 KPI
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("총 취득 원가", f"{df_eq['취득원가'].sum():,.0f} 원")
             c2.metric("현재 장부가 총액", f"{df_eq['현재잔액'].sum():,.0f} 원")
-            c3.metric("올해 적립 필요액", f"{df_eq['연간적립액'].sum():,.0f} 원")
+            c3.metric("월간 감가상각비", f"{df_eq['월간감가상각비'].sum():,.0f} 원")
+            c4.metric("월간 유지보수 충당금", f"{df_eq['월간유지보수충당금'].sum():,.0f} 원",
+                     help=f"취득원가의 {maintenance_rate}% 기준")
             
             st.divider()
             
+            # 연간/월간 비용 요약
+            st.subheader("📊 연간/월간 비용 요약")
+            col_sum1, col_sum2 = st.columns(2)
+            
+            with col_sum1:
+                st.markdown("**📅 연간 소요 비용**")
+                annual_dep = df_eq['연간적립액'].sum()
+                annual_maint = df_eq['월간유지보수충당금'].sum() * 12
+                annual_total = annual_dep + annual_maint
+                
+                summary_annual = pd.DataFrame({
+                    '항목': ['감가상각 적립액', '유지보수 충당금', '합계'],
+                    '금액': [f"{annual_dep:,.0f} 원", f"{annual_maint:,.0f} 원", f"{annual_total:,.0f} 원"]
+                })
+                st.dataframe(summary_annual, use_container_width=True, hide_index=True)
+            
+            with col_sum2:
+                st.markdown("**📆 월간 소요 비용**")
+                monthly_dep = df_eq['월간감가상각비'].sum()
+                monthly_maint = df_eq['월간유지보수충당금'].sum()
+                monthly_total = monthly_dep + monthly_maint
+                
+                summary_monthly = pd.DataFrame({
+                    '항목': ['감가상각비', '유지보수 충당금', '합계'],
+                    '금액': [f"{monthly_dep:,.0f} 원", f"{monthly_maint:,.0f} 원", f"{monthly_total:,.0f} 원"]
+                })
+                st.dataframe(summary_monthly, use_container_width=True, hide_index=True)
+            
+            st.divider()
+            
+            # 설비별 상세 테이블
+            st.subheader("📋 설비별 상세 내역")
             show_df = df_eq.copy()
             show_df['구입일자'] = show_df['구입일자'].dt.strftime('%Y-%m-%d')
             st.dataframe(
-                show_df[['설비명', '구입일자', '취득원가', '현재잔액', '올해말잔가', '연간적립액']].style.format("{:,.0f}", subset=['취득원가', '현재잔액', '올해말잔가', '연간적립액']),
+                show_df[['설비명', '구입일자', '취득원가', '현재잔액', '올해말잔가', 
+                        '월간감가상각비', '월간유지보수충당금', '연간적립액']].style.format(
+                    "{:,.0f}", 
+                    subset=['취득원가', '현재잔액', '올해말잔가', '월간감가상각비', '월간유지보수충당금', '연간적립액']
+                ),
                 use_container_width=True, hide_index=True
             )
+            
+            st.info(f"💡 **유지보수 충당금**: 취득원가의 {maintenance_rate}%를 연간 유지보수 비용으로 책정하였습니다. 사이드바에서 비율을 조정할 수 있습니다.")
 
 # =============================================================================
 # [탭 3] 냉각수 관리
