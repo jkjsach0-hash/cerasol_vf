@@ -523,267 +523,290 @@ with tab4:
             )
 
 # =============================================================================
-# [탭 5] 가동 시간 관리 - 디버깅 추가
+# [탭 5] 가동 시간 관리 - 수정 버전
+# 설비명, 설비코드, 가동 시간 + 날짜(연/월) 컬럼만 사용
 # =============================================================================
+
 with tab5:
     st.markdown("### ⏱️ 설비별 가동 시간 관리")
-    st.info("📌 가동시간을 월별로 자동 분할하여 분석합니다.")
+    st.info("📌 설비명, 설비코드, 가동시간을 기준으로 월별/연도별 분석합니다.")
     
     df_runtime = load_data(URL_RUNTIME)
     
     if df_runtime is None:
-        st.warning("⚠️ 가동시간 데이터를 불러올 수 없습니다. URL_RUNTIME의 GID를 확인하세요.")
+        st.warning("⚠️ 가동시간 데이터를 불러올 수 없습니다.")
     else:
-        # ========== 디버깅 정보 표시 ==========
-        with st.expander("🔍 데이터 디버깅 정보 (클릭하여 확인)"):
-            st.write("**📊 전체 데이터 행 수:**", len(df_runtime))
-            st.write("**📋 컬럼 목록:**", list(df_runtime.columns))
-            st.write("**🔤 데이터 타입:**")
-            st.write(df_runtime.dtypes)
-            st.write("**👀 첫 10개 행:**")
+        # 디버깅 정보
+        with st.expander("🔍 원본 데이터 확인"):
+            st.write(f"**컬럼 목록:** {list(df_runtime.columns)}")
             st.dataframe(df_runtime.head(10))
         
-        # 필수 컬럼 확인
-        required_cols = ['설비명', '설비코드', '가동 시작 일시', '완료 예정 일시', '가동 시간']
-        missing_cols = [col for col in required_cols if col not in df_runtime.columns]
+        # 필수 컬럼 확인 (설비명, 설비코드, 가동 시간, 날짜 관련)
+        # 날짜 컬럼은 '날짜', '연', '월', '가동일' 등 다양할 수 있음
         
-        if missing_cols:
-            st.error(f"❌ 필수 컬럼 누락: {', '.join(missing_cols)}")
+        # 기본 필수 컬럼
+        base_cols = ['설비명', '설비코드', '가동 시간']
+        missing_base = [col for col in base_cols if col not in df_runtime.columns]
+        
+        if missing_base:
+            st.error(f"❌ 필수 컬럼 누락: {', '.join(missing_base)}")
             st.info(f"현재 컬럼: {', '.join(df_runtime.columns.tolist())}")
-            st.info("💡 **필요한 컬럼**: 설비명, 설비코드, 가동 시작 일시, 완료 예정 일시, 가동 시간")
         else:
-            # 원본 데이터 수
-            original_count = len(df_runtime)
-            st.info(f"📊 원본 데이터 행 수: {original_count}")
-            
-            # 날짜 파싱
-            df_runtime['가동 시작 일시'] = pd.to_datetime(df_runtime['가동 시작 일시'], errors='coerce')
-            df_runtime['완료 예정 일시'] = pd.to_datetime(df_runtime['완료 예정 일시'], errors='coerce')
+            # 가동 시간 숫자 변환
             df_runtime['가동 시간'] = pd.to_numeric(df_runtime['가동 시간'], errors='coerce').fillna(0)
             
-            # 단계별 필터링 정보
-            valid_start = df_runtime['가동 시작 일시'].notna().sum()
-            valid_end = df_runtime['완료 예정 일시'].notna().sum()
-            valid_hours = (df_runtime['가동 시간'] > 0).sum()
-            
-            st.info(f"""
-            **데이터 검증 결과:**
-            - ✅ 가동 시작 일시 유효: {valid_start}/{original_count}개
-            - ✅ 완료 예정 일시 유효: {valid_end}/{original_count}개  
-            - ✅ 가동 시간 > 0: {valid_hours}/{original_count}개
-            """)
-            
-            # 유효한 데이터만 필터링
-            df_runtime_filtered = df_runtime.dropna(subset=['가동 시작 일시', '완료 예정 일시'])
-            st.info(f"🔄 날짜 유효 데이터: {len(df_runtime_filtered)}개")
-            
-            df_runtime_filtered = df_runtime_filtered[df_runtime_filtered['가동 시간'] > 0]
-            st.info(f"🔄 최종 유효 데이터: {len(df_runtime_filtered)}개")
-            
-            if len(df_runtime_filtered) == 0:
-                st.error("⚠️ 유효한 가동시간 데이터가 없습니다.")
-                st.warning("""
-                **확인 사항:**
-                1. '가동 시작 일시'와 '완료 예정 일시'가 날짜 형식(YYYY-MM-DD)인지 확인
-                2. '가동 시간'이 0보다 큰 숫자인지 확인
-                3. 빈 행이나 오류 데이터가 있는지 확인
-                """)
+            # 날짜/연/월 컬럼 처리
+            # 케이스 1: '날짜' 컬럼이 있는 경우
+            if '날짜' in df_runtime.columns:
+                df_runtime['날짜'] = pd.to_datetime(df_runtime['날짜'], errors='coerce')
+                df_runtime['연'] = df_runtime['날짜'].dt.year
+                df_runtime['월'] = df_runtime['날짜'].dt.month
+            # 케이스 2: '연', '월' 컬럼이 이미 있는 경우
+            elif '연' in df_runtime.columns and '월' in df_runtime.columns:
+                df_runtime['연'] = pd.to_numeric(df_runtime['연'], errors='coerce')
+                df_runtime['월'] = pd.to_numeric(df_runtime['월'], errors='coerce')
+            # 케이스 3: '가동 시작 일시' 컬럼이 있는 경우
+            elif '가동 시작 일시' in df_runtime.columns:
+                df_runtime['가동 시작 일시'] = pd.to_datetime(df_runtime['가동 시작 일시'], errors='coerce')
+                df_runtime['연'] = df_runtime['가동 시작 일시'].dt.year
+                df_runtime['월'] = df_runtime['가동 시작 일시'].dt.month
             else:
-                # ========== 월별 가동시간 분할 처리 ==========
-                st.success(f"✅ {len(df_runtime_filtered)}개의 유효 데이터를 처리합니다.")
+                st.error("❌ 날짜 정보를 찾을 수 없습니다. '날짜', '연/월', 또는 '가동 시작 일시' 컬럼이 필요합니다.")
+                st.stop()
+            
+            # 유효 데이터 필터링
+            df_valid = df_runtime.dropna(subset=['연', '월'])
+            df_valid = df_valid[df_valid['가동 시간'] > 0]
+            
+            if len(df_valid) == 0:
+                st.warning("⚠️ 유효한 가동시간 데이터가 없습니다.")
+            else:
+                st.success(f"✅ {len(df_valid)}개의 유효 데이터를 분석합니다.")
                 
-                monthly_records = []
+                # 연/월을 정수로 변환
+                df_valid['연'] = df_valid['연'].astype(int)
+                df_valid['월'] = df_valid['월'].astype(int)
                 
-                progress_bar = st.progress(0)
-                for idx, (i, row) in enumerate(df_runtime_filtered.iterrows()):
-                    split_data = split_runtime_by_month(
-                        row['가동 시작 일시'],
-                        row['완료 예정 일시'],
-                        row['가동 시간']
-                    )
-                    
-                    for split_row in split_data:
-                        monthly_records.append({
-                            '설비명': row['설비명'],
-                            '설비코드': row['설비코드'],
-                            '연': split_row['연'],
-                            '월': split_row['월'],
-                            '가동 시간': split_row['가동 시간']
-                        })
-                    
-                    progress_bar.progress((idx + 1) / len(df_runtime_filtered))
+                st.divider()
                 
-                progress_bar.empty()
+                # ========== 1. 연도별 총 가동시간 KPI ==========
+                st.subheader("📊 연도별 총 가동시간")
                 
-                if len(monthly_records) == 0:
-                    st.warning("⚠️ 월별 분할 후 데이터가 없습니다.")
-                else:
-                    df_monthly = pd.DataFrame(monthly_records)
+                yearly_totals = df_valid.groupby('연')['가동 시간'].sum().sort_index()
+                years_list = yearly_totals.index.tolist()
+                
+                if years_list:
+                    cols_kpi = st.columns(len(years_list))
+                    for i, year in enumerate(years_list):
+                        with cols_kpi[i]:
+                            st.metric(
+                                f"{year}년",
+                                f"{yearly_totals[year]:,.1f} 시간"
+                            )
+                
+                st.divider()
+                
+                # ========== 2. 월별(열) / 연도별(행) 가동시간 표 ==========
+                st.subheader("📅 연도별 월간 가동시간 총계")
+                st.caption("행: 연도 / 열: 월")
+                
+                # 피벗 테이블: 연도(행) x 월(열)
+                pivot_runtime = df_valid.pivot_table(
+                    index='연',
+                    columns='월',
+                    values='가동 시간',
+                    aggfunc='sum',
+                    fill_value=0
+                )
+                
+                # 1~12월 모두 표시
+                for month in range(1, 13):
+                    if month not in pivot_runtime.columns:
+                        pivot_runtime[month] = 0
+                pivot_runtime = pivot_runtime[sorted(pivot_runtime.columns)]
+                
+                # 합계 컬럼 추가
+                pivot_runtime['합계'] = pivot_runtime.sum(axis=1)
+                
+                # 컬럼명 변경 (1 → 1월)
+                new_cols = [f"{int(c)}월" if c != '합계' else '합계' for c in pivot_runtime.columns]
+                pivot_runtime.columns = new_cols
+                
+                # 인덱스명 변경 (2024 → 2024년)
+                pivot_runtime.index = [f"{int(y)}년" for y in pivot_runtime.index]
+                
+                # 합계 행 추가
+                total_row = pd.DataFrame(
+                    pivot_runtime.sum(axis=0),
+                    columns=['✅ 전체 합계']
+                ).T
+                
+                display_table = pd.concat([pivot_runtime, total_row], axis=0)
+                
+                # 스타일링 및 표시
+                st.dataframe(
+                    display_table.style.format("{:,.1f}").apply(
+                        lambda x: ['background-color: #E8F4F8; font-weight: bold' 
+                                   if x.name == '✅ 전체 합계' else '' for i in x],
+                        axis=1
+                    ),
+                    use_container_width=True
+                )
+                
+                st.divider()
+                
+                # ========== 3. 연도별 월간 추이 차트 ==========
+                st.subheader("📈 연도별 월간 가동시간 추이")
+                
+                # 차트용 데이터 (합계 컬럼 제외, 전체합계 행 제외)
+                chart_data = pivot_runtime.iloc[:-1, :-1] if '✅ 전체 합계' in display_table.index else pivot_runtime.iloc[:, :-1]
+                
+                # Transpose하여 월이 x축, 연도가 series가 되도록
+                st.line_chart(chart_data.T)
+                
+                st.divider()
+                
+                # ========== 4. 설비별 총 가동시간 ==========
+                st.subheader("🔧 설비별 총 가동시간")
+                
+                # 설비별 합계
+                equipment_totals = df_valid.groupby(['설비코드', '설비명'])['가동 시간'].sum().reset_index()
+                equipment_totals = equipment_totals.sort_values('가동 시간', ascending=False)
+                equipment_totals['순위'] = range(1, len(equipment_totals) + 1)
+                
+                # 표시용 데이터
+                display_eq = equipment_totals[['순위', '설비코드', '설비명', '가동 시간']].copy()
+                display_eq['비율 (%)'] = (display_eq['가동 시간'] / display_eq['가동 시간'].sum() * 100)
+                
+                # 합계 행 추가
+                total_eq = pd.DataFrame({
+                    '순위': [''],
+                    '설비코드': [''],
+                    '설비명': ['✅ 전체 합계'],
+                    '가동 시간': [display_eq['가동 시간'].sum()],
+                    '비율 (%)': [100.0]
+                })
+                display_eq = pd.concat([display_eq, total_eq], ignore_index=True)
+                
+                st.dataframe(
+                    display_eq.style.format({
+                        '가동 시간': '{:,.1f}',
+                        '비율 (%)': '{:.1f}%'
+                    }).apply(
+                        lambda x: ['background-color: #E8F4F8; font-weight: bold' 
+                                   if x.name == len(display_eq)-1 else '' for i in x],
+                        axis=1
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                st.divider()
+                
+                # ========== 5. 설비별 연도별 가동시간 ==========
+                st.subheader("🏭 설비별 연도별 가동시간")
+                
+                # 설비별, 연도별 피벗
+                pivot_eq_year = df_valid.pivot_table(
+                    index=['설비코드', '설비명'],
+                    columns='연',
+                    values='가동 시간',
+                    aggfunc='sum',
+                    fill_value=0
+                )
+                
+                # 합계 컬럼 추가
+                pivot_eq_year['합계'] = pivot_eq_year.sum(axis=1)
+                
+                # 컬럼명 변경
+                pivot_eq_year.columns = [f"{int(c)}년" if c != '합계' else '합계' for c in pivot_eq_year.columns]
+                
+                # 인덱스 리셋
+                pivot_eq_year = pivot_eq_year.reset_index()
+                
+                # 합계 행 추가
+                total_row_eq = pivot_eq_year.select_dtypes(include='number').sum()
+                total_row_eq['설비코드'] = ''
+                total_row_eq['설비명'] = '✅ 전체 합계'
+                
+                pivot_eq_year = pd.concat([pivot_eq_year, pd.DataFrame([total_row_eq])], ignore_index=True)
+                
+                st.dataframe(
+                    pivot_eq_year.style.format(
+                        {col: '{:,.1f}' for col in pivot_eq_year.columns if col not in ['설비코드', '설비명']}
+                    ).apply(
+                        lambda x: ['background-color: #E8F4F8; font-weight: bold' 
+                                   if x.name == len(pivot_eq_year)-1 else '' for i in x],
+                        axis=1
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                st.divider()
+                
+                # ========== 6. 설비별 월별 가동시간 (선택) ==========
+                st.subheader("📆 설비별 월별 가동시간 상세")
+                
+                # 설비 선택
+                equipment_list = df_valid['설비명'].unique().tolist()
+                selected_equipment = st.multiselect(
+                    "설비 선택 (복수 선택 가능)",
+                    equipment_list,
+                    default=equipment_list[:3] if len(equipment_list) >= 3 else equipment_list
+                )
+                
+                if selected_equipment:
+                    df_selected = df_valid[df_valid['설비명'].isin(selected_equipment)]
                     
-                    # 같은 설비, 같은 연월의 데이터 합산
-                    df_monthly = df_monthly.groupby(['설비명', '설비코드', '연', '월'])['가동 시간'].sum().reset_index()
-                    
-                    st.success(f"✅ 월별 분할 완료: {len(df_monthly)}개 레코드")
-                    
-                    st.divider()
-                    
-                    # ========== 연도별 총 가동시간 KPI ==========
-                    st.subheader("📊 연도별 총 가동시간")
-                    
-                    yearly_totals = df_monthly.groupby('연')['가동 시간'].sum().sort_index()
-                    years_runtime = yearly_totals.index.tolist()
-                    
-                    if years_runtime:
-                        cols_kpi = st.columns(len(years_runtime))
-                        for i, year in enumerate(years_runtime):
-                            with cols_kpi[i]:
-                                st.metric(
-                                    f"{int(year)}년",
-                                    f"{yearly_totals[year]:,.1f} 시간",
-                                    help=f"{int(year)}년 전체 설비 가동시간 합계"
-                                )
-                    
-                    st.divider()
-                    
-                    # ========== 월별(열) / 연도별(행) 가동시간 표 ==========
-                    st.subheader("📅 연도별 월간 가동시간 총계")
-                    
-                    # 피벗 테이블: 연도(행) x 월(열)
-                    pivot_runtime = df_monthly.pivot_table(
-                        index='연',
+                    # 설비별 월별 피벗
+                    pivot_eq_month = df_selected.pivot_table(
+                        index='설비명',
                         columns='월',
                         values='가동 시간',
                         aggfunc='sum',
                         fill_value=0
                     )
                     
-                    # 1~12월 모두 표시되도록 보장
+                    # 1~12월 모두 표시
                     for month in range(1, 13):
-                        if month not in pivot_runtime.columns:
-                            pivot_runtime[month] = 0
-                    
-                    pivot_runtime = pivot_runtime[sorted(pivot_runtime.columns)]
+                        if month not in pivot_eq_month.columns:
+                            pivot_eq_month[month] = 0
+                    pivot_eq_month = pivot_eq_month[sorted(pivot_eq_month.columns)]
                     
                     # 합계 컬럼 추가
-                    pivot_runtime['합계'] = pivot_runtime.sum(axis=1)
+                    pivot_eq_month['합계'] = pivot_eq_month.sum(axis=1)
                     
-                    # 컬럼명 변경 (1 → 1월)
-                    new_cols_runtime = []
-                    for col in pivot_runtime.columns:
-                        if col == '합계':
-                            new_cols_runtime.append('합계')
-                        else:
-                            new_cols_runtime.append(f"{int(col)}월")
-                    pivot_runtime.columns = new_cols_runtime
+                    # 컬럼명 변경
+                    pivot_eq_month.columns = [f"{int(c)}월" if c != '합계' else '합계' for c in pivot_eq_month.columns]
                     
-                    # 인덱스명 변경 (2024 → 2024년)
-                    pivot_runtime.index = [f"{int(y)}년" for y in pivot_runtime.index]
-                    
-                    # 합계 행 추가
-                    total_row = pd.DataFrame(
-                        pivot_runtime.sum(axis=0),
-                        columns=['✅ 전체 합계']
-                    ).T
-                    
-                    display_runtime_table = pd.concat([pivot_runtime, total_row], axis=0)
-                    
-                    # 데이터프레임 표시
                     st.dataframe(
-                        display_runtime_table.style.format("{:,.1f}").apply(
-                            lambda x: ['background-color: #E8F4F8' if x.name == '✅ 전체 합계' else '' for i in x],
-                            axis=1
-                        ).highlight_max(axis=0, color='#FFFFCC', subset=pivot_runtime.index.tolist()),
+                        pivot_eq_month.style.format("{:,.1f}"),
                         use_container_width=True
                     )
                     
-                    st.divider()
-                    
-                    # ========== 연도별 월간 추이 차트 ==========
-                    st.subheader("📈 연도별 월간 가동시간 추이")
-                    
-                    # 차트용 데이터 (합계 컬럼 제외)
-                    chart_data = pivot_runtime.iloc[:, :-1]  # 합계 컬럼 제외
-                    st.line_chart(chart_data.T)
-                    
-                    st.markdown("---")
-                    
-                    # ========== 설비별 총 가동시간 ==========
-                    st.subheader("🔧 설비별 총 가동시간")
-                    
-                    # 설비별 합계
-                    equipment_totals = df_monthly.groupby(['설비코드', '설비명'])['가동 시간'].sum().reset_index()
-                    equipment_totals = equipment_totals.sort_values('가동 시간', ascending=False)
-                    equipment_totals['순위'] = range(1, len(equipment_totals) + 1)
-                    
-                    # 표시용 데이터 준비
-                    display_equipment = equipment_totals[['순위', '설비코드', '설비명', '가동 시간']].copy()
-                    display_equipment['비율 (%)'] = (display_equipment['가동 시간'] / display_equipment['가동 시간'].sum() * 100)
-                    
-                    # 합계 행 추가
-                    total_row_eq = pd.DataFrame({
-                        '순위': [''],
-                        '설비코드': [''],
-                        '설비명': ['✅ 전체 합계'],
-                        '가동 시간': [display_equipment['가동 시간'].sum()],
-                        '비율 (%)': [100.0]
-                    })
-                    
-                    display_equipment = pd.concat([display_equipment, total_row_eq], ignore_index=True)
-                    
-                    # 데이터프레임 표시
-                    st.dataframe(
-                        display_equipment.style.format({
-                            '가동 시간': '{:,.1f}',
-                            '비율 (%)': '{:.1f}%'
-                        }).apply(
-                            lambda x: ['background-color: #E8F4F8' if x.name == len(display_equipment)-1 else '' for i in x],
-                            axis=1
-                        ),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    
-                    st.divider()
-                    
-                    # ========== 월 경계 넘는 가동 사례 ==========
-                    with st.expander("🔍 월 경계를 넘는 가동 사례 보기"):
-                        cross_month_cases = []
-                        
-                        for idx, row in df_runtime_filtered.iterrows():
-                            start_month = row['가동 시작 일시'].month
-                            end_month = row['완료 예정 일시'].month
-                            start_year = row['가동 시작 일시'].year
-                            end_year = row['완료 예정 일시'].year
-                            
-                            if start_year != end_year or start_month != end_month:
-                                cross_month_cases.append({
-                                    '설비명': row['설비명'],
-                                    '가동 시작': row['가동 시작 일시'].strftime('%Y-%m-%d'),
-                                    '완료 예정': row['완료 예정 일시'].strftime('%Y-%m-%d'),
-                                    '총 가동시간': f"{row['가동 시간']:.1f}h"
-                                })
-                        
-                        if cross_month_cases:
-                            st.write(f"📋 총 {len(cross_month_cases)}건의 월 경계 넘는 가동이 있습니다.")
-                            st.dataframe(pd.DataFrame(cross_month_cases), use_container_width=True, hide_index=True)
-                        else:
-                            st.info("모든 가동이 단일 월 내에서 완료되었습니다.")
-                    
-                    # ========== 데이터 요약 정보 ==========
-                    st.subheader("📌 데이터 요약")
-                    
-                    col_summary1, col_summary2, col_summary3, col_summary4 = st.columns(4)
-                    
-                    with col_summary1:
-                        st.metric("총 설비 수", f"{len(equipment_totals)}개")
-                    
-                    with col_summary2:
-                        st.metric("총 가동시간", f"{df_monthly['가동 시간'].sum():,.1f} 시간")
-                    
-                    with col_summary3:
-                        st.metric("평균 가동시간", f"{df_monthly['가동 시간'].mean():,.1f} 시간")
-                    
-                    with col_summary4:
-                        st.metric("최대 가동시간", f"{df_monthly['가동 시간'].max():,.1f} 시간")
-                    
-                    st.info("💡 **분석 팁**: 월 경계를 넘는 가동시간도 자동으로 각 월별로 분할되어 정확한 월별 통계를 제공합니다.")
+                    # 선택된 설비의 월별 차트
+                    st.markdown("**📈 선택 설비 월별 추이**")
+                    chart_eq_month = pivot_eq_month.iloc[:, :-1]  # 합계 제외
+                    st.bar_chart(chart_eq_month.T)
+                
+                st.divider()
+                
+                # ========== 7. 데이터 요약 ==========
+                st.subheader("📌 데이터 요약")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("총 설비 수", f"{df_valid['설비명'].nunique()}개")
+                
+                with col2:
+                    st.metric("총 가동시간", f"{df_valid['가동 시간'].sum():,.1f} 시간")
+                
+                with col3:
+                    avg_monthly = df_valid.groupby(['연', '월'])['가동 시간'].sum().mean()
+                    st.metric("월평균 가동시간", f"{avg_monthly:,.1f} 시간")
+                
+                with col4:
+                    max_equipment = equipment_totals.iloc[0]['설비명'] if len(equipment_totals) > 0 else '-'
+                    st.metric("최다 가동 설비", max_equipment)
