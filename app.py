@@ -130,7 +130,7 @@ def split_runtime_by_month(start_dt, end_dt, total_hours):
 # -----------------------------------------------------------------------------
 # 6. 탭 구성
 # -----------------------------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["💰 시간당 소성비용", "🏭 설비 감가상각", "💧 냉각수 관리", "⚡ 설비 전력", "⏱️ 가동 시간"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💰 시간당 소성비용", "🏭 설비 감가상각", "💧 냉각수 관리", "⚡ 설비 전력", "⏱️ 가동 시간", "⚡ 시간당 전력"])
 
 # =============================================================================
 # [탭 1~4는 이전과 동일하므로 생략...]
@@ -848,3 +848,323 @@ with tab5:
                 with col4:
                     max_eq_name = equipment_totals.iloc[0]['설비명'] if len(equipment_totals) > 0 else '-'
                     st.metric("최다 가동 설비", max_eq_name)
+
+# =============================================================================
+# [탭 6] 월별 시간당 전력 사용량 분석
+# 계산: 월간 전력량 ÷ 월간 가동시간 = 시간당 전력 사용량 (kWh/h)
+# 대상: 2023년, 2024년
+# =============================================================================
+
+with tab6:
+    st.markdown("### ⚡ 월별 시간당 전력 사용량 분석")
+    st.info("📌 **계산식**: 시간당 전력 사용량 = 월간 전력량(kWh) ÷ 월간 가동시간(h)")
+    
+    # 데이터 로드
+    df_power = load_data(URL_POWER)
+    df_runtime = load_data(URL_RUNTIME)
+    
+    if df_power is None or df_runtime is None:
+        st.error("⚠️ 전력 또는 가동시간 데이터를 불러올 수 없습니다.")
+    else:
+        # ========== 1. 전력 데이터 처리 ==========
+        df_power.columns = df_power.columns.str.strip()
+        
+        if '날짜' not in df_power.columns or '사용량' not in df_power.columns:
+            st.error("❌ 전력 데이터에 '날짜', '사용량' 컬럼이 필요합니다.")
+        else:
+            df_power['날짜'] = pd.to_datetime(df_power['날짜'], errors='coerce')
+            df_power = df_power.dropna(subset=['날짜'])
+            df_power['실제전력소비량'] = df_power['사용량'] * 80  # 단위 변환
+            df_power['연'] = df_power['날짜'].dt.year
+            df_power['월'] = df_power['날짜'].dt.month
+            
+            # 2023, 2024년만 필터링
+            df_power = df_power[df_power['연'].isin([2023, 2024])]
+            
+            # 월별 전력량 집계
+            power_monthly = df_power.groupby(['연', '월'])['실제전력소비량'].sum().reset_index()
+            power_monthly.columns = ['연', '월', '월간전력량']
+            
+            # ========== 2. 가동시간 데이터 처리 ==========
+            df_runtime.columns = df_runtime.columns.str.strip()
+            
+            # 한국어 날짜 파싱 함수
+            def parse_korean_datetime(date_str):
+                if pd.isna(date_str):
+                    return pd.NaT
+                try:
+                    date_str = str(date_str).strip()
+                    is_pm = '오후' in date_str
+                    date_str = date_str.replace('오전', '').replace('오후', '').strip()
+                    parts = date_str.split()
+                    date_parts = ' '.join(parts[:-1])
+                    time_part = parts[-1]
+                    date_nums = date_parts.replace('.', ' ').split()
+                    year = int(date_nums[0])
+                    month = int(date_nums[1])
+                    day = int(date_nums[2])
+                    time_parts = time_part.split(':')
+                    hour = int(time_parts[0])
+                    if is_pm and hour != 12:
+                        hour += 12
+                    elif not is_pm and hour == 12:
+                        hour = 0
+                    return datetime(year, month, day, hour)
+                except:
+                    return pd.NaT
+            
+            # 날짜 파싱 및 연/월 추출
+            df_runtime['가동시작_parsed'] = df_runtime['가동 시작 일시'].apply(parse_korean_datetime)
+            df_runtime['연'] = df_runtime['가동시작_parsed'].dt.year
+            df_runtime['월'] = df_runtime['가동시작_parsed'].dt.month
+            df_runtime['가동 시간'] = pd.to_numeric(df_runtime['가동 시간'], errors='coerce').fillna(0)
+            
+            # 유효 데이터 필터링
+            df_runtime = df_runtime.dropna(subset=['연', '월'])
+            df_runtime = df_runtime[df_runtime['가동 시간'] > 0]
+            df_runtime['연'] = df_runtime['연'].astype(int)
+            df_runtime['월'] = df_runtime['월'].astype(int)
+            
+            # 2023, 2024년만 필터링
+            df_runtime = df_runtime[df_runtime['연'].isin([2023, 2024])]
+            
+            # 월별 가동시간 집계
+            runtime_monthly = df_runtime.groupby(['연', '월'])['가동 시간'].sum().reset_index()
+            runtime_monthly.columns = ['연', '월', '월간가동시간']
+            
+            # ========== 3. 데이터 병합 및 시간당 전력 계산 ==========
+            df_merged = pd.merge(power_monthly, runtime_monthly, on=['연', '월'], how='outer')
+            df_merged = df_merged.fillna(0)
+            
+            # 시간당 전력 사용량 계산
+            df_merged['시간당전력'] = df_merged.apply(
+                lambda row: row['월간전력량'] / row['월간가동시간'] 
+                if row['월간가동시간'] > 0 else 0, 
+                axis=1
+            )
+            
+            # 디버깅 정보
+            with st.expander("🔍 데이터 처리 결과 확인"):
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    st.write("**전력 데이터 (월별 집계)**")
+                    st.dataframe(power_monthly)
+                with col_d2:
+                    st.write("**가동시간 데이터 (월별 집계)**")
+                    st.dataframe(runtime_monthly)
+                st.write("**병합 결과**")
+                st.dataframe(df_merged)
+            
+            if len(df_merged) == 0:
+                st.warning("⚠️ 2023-2024년 데이터가 없습니다.")
+            else:
+                st.success(f"✅ {len(df_merged)}개월 데이터를 분석합니다.")
+                
+                st.divider()
+                
+                # ========== 4. 연도별 KPI ==========
+                st.subheader("📊 연도별 평균 시간당 전력 사용량")
+                
+                yearly_stats = df_merged[df_merged['월간가동시간'] > 0].groupby('연').agg({
+                    '월간전력량': 'sum',
+                    '월간가동시간': 'sum',
+                    '시간당전력': 'mean'
+                }).reset_index()
+                
+                yearly_stats['연평균시간당전력'] = yearly_stats['월간전력량'] / yearly_stats['월간가동시간']
+                
+                cols_kpi = st.columns(len(yearly_stats) + 1)
+                
+                for i, row in yearly_stats.iterrows():
+                    with cols_kpi[i]:
+                        st.metric(
+                            f"{int(row['연'])}년",
+                            f"{row['연평균시간당전력']:,.1f} kWh/h",
+                            help=f"총 전력량: {row['월간전력량']:,.0f} kWh\n총 가동시간: {row['월간가동시간']:,.0f} h"
+                        )
+                
+                # 전체 평균
+                if len(yearly_stats) > 0:
+                    total_power = yearly_stats['월간전력량'].sum()
+                    total_runtime = yearly_stats['월간가동시간'].sum()
+                    overall_avg = total_power / total_runtime if total_runtime > 0 else 0
+                    
+                    with cols_kpi[-1]:
+                        st.metric(
+                            "전체 평균",
+                            f"{overall_avg:,.1f} kWh/h",
+                            help="2023-2024년 전체 평균"
+                        )
+                
+                st.divider()
+                
+                # ========== 5. 월별 상세 테이블 (연도별 행, 월별 열) ==========
+                st.subheader("📅 월별 시간당 전력 사용량")
+                st.caption("🔹 행: 연도 / 열: 월 (단위: kWh/h)")
+                
+                # 피벗 테이블 생성
+                pivot_hourly = df_merged.pivot_table(
+                    index='연',
+                    columns='월',
+                    values='시간당전력',
+                    aggfunc='sum',
+                    fill_value=0
+                )
+                
+                # 1~12월 모두 표시
+                for month in range(1, 13):
+                    if month not in pivot_hourly.columns:
+                        pivot_hourly[month] = 0
+                pivot_hourly = pivot_hourly[sorted(pivot_hourly.columns)]
+                
+                # 연평균 컬럼 추가
+                pivot_hourly['평균'] = pivot_hourly.replace(0, pd.NA).mean(axis=1, skipna=True).fillna(0)
+                
+                # 컬럼명 변경
+                new_cols = [f"{int(c)}월" if c != '평균' else '평균' for c in pivot_hourly.columns]
+                pivot_hourly.columns = new_cols
+                
+                # 인덱스명 변경
+                pivot_hourly.index = [f"{int(y)}년" for y in pivot_hourly.index]
+                
+                # 스타일링
+                def highlight_values(val):
+                    if val == 0:
+                        return 'color: #ccc'
+                    elif val > 500:
+                        return 'background-color: #ffcccc'
+                    elif val > 300:
+                        return 'background-color: #fff3cd'
+                    else:
+                        return 'background-color: #d4edda'
+                
+                st.dataframe(
+                    pivot_hourly.style.format("{:,.1f}").applymap(highlight_values),
+                    use_container_width=True
+                )
+                
+                st.caption("🔴 500 이상 | 🟡 300~500 | 🟢 300 미만 | ⚪ 데이터 없음")
+                
+                st.divider()
+                
+                # ========== 6. 상세 데이터 테이블 ==========
+                st.subheader("📋 월별 상세 데이터")
+                
+                # 표시용 데이터 준비
+                display_detail = df_merged.copy()
+                display_detail = display_detail.sort_values(['연', '월'])
+                display_detail['연월'] = display_detail.apply(lambda x: f"{int(x['연'])}년 {int(x['월'])}월", axis=1)
+                
+                display_detail = display_detail[['연월', '월간전력량', '월간가동시간', '시간당전력']]
+                display_detail.columns = ['연월', '월간 전력량 (kWh)', '월간 가동시간 (h)', '시간당 전력 (kWh/h)']
+                
+                # 합계 행 추가
+                total_row = pd.DataFrame({
+                    '연월': ['✅ 합계/평균'],
+                    '월간 전력량 (kWh)': [df_merged['월간전력량'].sum()],
+                    '월간 가동시간 (h)': [df_merged['월간가동시간'].sum()],
+                    '시간당 전력 (kWh/h)': [df_merged['월간전력량'].sum() / df_merged['월간가동시간'].sum() 
+                                          if df_merged['월간가동시간'].sum() > 0 else 0]
+                })
+                
+                display_detail = pd.concat([display_detail, total_row], ignore_index=True)
+                
+                st.dataframe(
+                    display_detail.style.format({
+                        '월간 전력량 (kWh)': '{:,.0f}',
+                        '월간 가동시간 (h)': '{:,.0f}',
+                        '시간당 전력 (kWh/h)': '{:,.1f}'
+                    }).apply(
+                        lambda x: ['background-color: #E8F4F8; font-weight: bold' 
+                                   if x.name == len(display_detail)-1 else '' for i in x],
+                        axis=1
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                st.divider()
+                
+                # ========== 7. 추이 차트 ==========
+                st.subheader("📈 월별 추이 차트")
+                
+                # 차트 데이터 준비
+                chart_df = df_merged[df_merged['시간당전력'] > 0].copy()
+                chart_df['연월'] = chart_df.apply(lambda x: f"{int(x['연'])}-{int(x['월']):02d}", axis=1)
+                chart_df = chart_df.sort_values('연월')
+                
+                # 탭으로 차트 구분
+                chart_tab1, chart_tab2, chart_tab3 = st.tabs(["시간당 전력", "전력량 vs 가동시간", "연도별 비교"])
+                
+                with chart_tab1:
+                    st.markdown("**시간당 전력 사용량 추이 (kWh/h)**")
+                    chart_hourly = chart_df.set_index('연월')['시간당전력']
+                    st.line_chart(chart_hourly)
+                
+                with chart_tab2:
+                    st.markdown("**월간 전력량과 가동시간 비교**")
+                    
+                    col_chart1, col_chart2 = st.columns(2)
+                    
+                    with col_chart1:
+                        st.markdown("*월간 전력량 (kWh)*")
+                        chart_power = chart_df.set_index('연월')['월간전력량']
+                        st.bar_chart(chart_power)
+                    
+                    with col_chart2:
+                        st.markdown("*월간 가동시간 (h)*")
+                        chart_runtime = chart_df.set_index('연월')['월간가동시간']
+                        st.bar_chart(chart_runtime)
+                
+                with chart_tab3:
+                    st.markdown("**연도별 월간 시간당 전력 비교**")
+                    
+                    # 연도별로 분리
+                    pivot_chart = df_merged.pivot_table(
+                        index='월',
+                        columns='연',
+                        values='시간당전력',
+                        fill_value=0
+                    )
+                    pivot_chart.index = [f"{m}월" for m in pivot_chart.index]
+                    pivot_chart.columns = [f"{int(y)}년" for y in pivot_chart.columns]
+                    
+                    st.line_chart(pivot_chart)
+                
+                st.divider()
+                
+                # ========== 8. 요약 통계 ==========
+                st.subheader("📌 요약 통계")
+                
+                valid_data = df_merged[df_merged['시간당전력'] > 0]
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(
+                        "분석 기간",
+                        f"{len(valid_data)}개월",
+                        help="유효 데이터가 있는 월 수"
+                    )
+                
+                with col2:
+                    st.metric(
+                        "평균 시간당 전력",
+                        f"{valid_data['시간당전력'].mean():,.1f} kWh/h"
+                    )
+                
+                with col3:
+                    st.metric(
+                        "최대 시간당 전력",
+                        f"{valid_data['시간당전력'].max():,.1f} kWh/h",
+                        help=f"{valid_data.loc[valid_data['시간당전력'].idxmax(), '연']:.0f}년 {valid_data.loc[valid_data['시간당전력'].idxmax(), '월']:.0f}월"
+                    )
+                
+                with col4:
+                    st.metric(
+                        "최소 시간당 전력",
+                        f"{valid_data['시간당전력'].min():,.1f} kWh/h",
+                        help=f"{valid_data.loc[valid_data['시간당전력'].idxmin(), '연']:.0f}년 {valid_data.loc[valid_data['시간당전력'].idxmin(), '월']:.0f}월"
+                    )
+                
+                st.info("💡 **분석 팁**: 시간당 전력 사용량이 높은 달은 설비 효율 점검이 필요할 수 있습니다.")
