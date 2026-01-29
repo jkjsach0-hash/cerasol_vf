@@ -852,7 +852,7 @@ with tab5:
 # =============================================================================
 # [탭 6] 월별 시간당 전력 사용량 분석
 # 계산: 월간 전력량 ÷ 월간 가동시간 = 시간당 전력 사용량 (kWh/h)
-# 대상: 2023년, 2024년
+# 대상: 2023년, 2024년, 2025년
 # =============================================================================
 
 with tab6:
@@ -878,8 +878,8 @@ with tab6:
             df_power['연'] = df_power['날짜'].dt.year
             df_power['월'] = df_power['날짜'].dt.month
             
-            # 2023, 2024년만 필터링
-            df_power = df_power[df_power['연'].isin([2023, 2024])]
+            # 2023, 2024, 2025년 필터링
+            df_power = df_power[df_power['연'].isin([2023, 2024, 2025])]
             
             # 월별 전력량 집계
             power_monthly = df_power.groupby(['연', '월'])['실제전력소비량'].sum().reset_index()
@@ -925,8 +925,8 @@ with tab6:
             df_runtime['연'] = df_runtime['연'].astype(int)
             df_runtime['월'] = df_runtime['월'].astype(int)
             
-            # 2023, 2024년만 필터링
-            df_runtime = df_runtime[df_runtime['연'].isin([2023, 2024])]
+            # 2023, 2024, 2025년 필터링
+            df_runtime = df_runtime[df_runtime['연'].isin([2023, 2024, 2025])]
             
             # 월별 가동시간 집계
             runtime_monthly = df_runtime.groupby(['연', '월'])['가동 시간'].sum().reset_index()
@@ -956,7 +956,7 @@ with tab6:
                 st.dataframe(df_merged)
             
             if len(df_merged) == 0:
-                st.warning("⚠️ 2023-2024년 데이터가 없습니다.")
+                st.warning("⚠️ 2023-2025년 데이터가 없습니다.")
             else:
                 st.success(f"✅ {len(df_merged)}개월 데이터를 분석합니다.")
                 
@@ -993,7 +993,7 @@ with tab6:
                         st.metric(
                             "전체 평균",
                             f"{overall_avg:,.1f} kWh/h",
-                            help="2023-2024년 전체 평균"
+                            help="2023-2025년 전체 평균"
                         )
                 
                 st.divider()
