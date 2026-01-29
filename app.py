@@ -58,7 +58,7 @@ st.title("🏭 공장 운영 관리 시스템")
 URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
 URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1052812012" 
 URL_POWER = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1442513579"
-URL_RUNTIME = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1281696201"  # ← 가동시간 시트의 실제 GID로 변경하세요
+URL_RUNTIME = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1281696201"
 
 @st.cache_data(ttl=600)
 def load_data(url):
@@ -473,7 +473,7 @@ with tab4:
             )
 
 # =============================================================================
-# [탭 5] 가동 시간 관리 (NEW)
+# [탭 5] 가동 시간 관리 (NEW) - 디버깅 정보 추가
 # =============================================================================
 with tab5:
     st.markdown("### ⏱️ 설비별 가동 시간 관리")
@@ -484,6 +484,21 @@ with tab5:
     if df_runtime is None:
         st.warning("⚠️ 가동시간 데이터를 불러올 수 없습니다. URL_RUNTIME의 GID를 확인하세요.")
     else:
+        # ========== 디버깅 정보 표시 ==========
+        with st.expander("🔍 데이터 디버깅 정보 (클릭하여 확인)"):
+            st.write("**전체 데이터 행 수:**", len(df_runtime))
+            st.write("**컬럼 목록:**", list(df_runtime.columns))
+            st.write("**데이터 타입:**")
+            st.write(df_runtime.dtypes)
+            st.write("**첫 5개 행:**")
+            st.dataframe(df_runtime.head())
+            st.write("**'가동 시작 일시' 컬럼 샘플 (처음 10개):**")
+            if '가동 시작 일시' in df_runtime.columns:
+                st.write(df_runtime['가동 시작 일시'].head(10).tolist())
+            st.write("**'가동 시간' 컬럼 샘플 (처음 10개):**")
+            if '가동 시간' in df_runtime.columns:
+                st.write(df_runtime['가동 시간'].head(10).tolist())
+        
         # 필수 컬럼 확인
         required_cols = ['장비명', '설비명', '설비코드', '가동 시작 일시', '완료 예정 일시', '가동 시간']
         missing_cols = [col for col in required_cols if col not in df_runtime.columns]
@@ -492,22 +507,37 @@ with tab5:
             st.error(f"❌ 필수 컬럼 누락: {', '.join(missing_cols)}")
             st.info(f"현재 컬럼: {', '.join(df_runtime.columns.tolist())}")
         else:
+            # 날짜 파싱 전 원본 데이터 수
+            original_count = len(df_runtime)
+            st.info(f"📊 원본 데이터 행 수: {original_count}")
+            
             # 날짜 파싱
             df_runtime['가동 시작 일시'] = pd.to_datetime(df_runtime['가동 시작 일시'], errors='coerce')
             df_runtime['완료 예정 일시'] = pd.to_datetime(df_runtime['완료 예정 일시'], errors='coerce')
+            
+            # 날짜 변환 후 유효한 데이터 확인
+            valid_dates = df_runtime['가동 시작 일시'].notna().sum()
+            st.info(f"📅 날짜 변환 성공: {valid_dates}개 / {original_count}개")
             
             # 유효한 데이터만 필터링
             df_runtime = df_runtime.dropna(subset=['가동 시작 일시'])
             
             if len(df_runtime) == 0:
                 st.warning("⚠️ 유효한 가동시간 데이터가 없습니다.")
+                st.error("💡 **해결 방법**: '가동 시작 일시' 컬럼의 날짜 형식을 확인해주세요. 예: 2024-01-15, 2024-01-15 10:30:00")
             else:
                 # 연도/월 추출
                 df_runtime['연도'] = df_runtime['가동 시작 일시'].dt.year
                 df_runtime['월'] = df_runtime['가동 시작 일시'].dt.month
                 
+                # 가동시간을 숫자로 변환 전 확인
+                st.info(f"📊 '가동 시간' 컬럼 데이터 타입: {df_runtime['가동 시간'].dtype}")
+                
                 # 가동시간을 숫자로 변환 (문자열인 경우 처리)
                 df_runtime['가동 시간'] = pd.to_numeric(df_runtime['가동 시간'], errors='coerce').fillna(0)
+                
+                valid_runtime = (df_runtime['가동 시간'] > 0).sum()
+                st.info(f"⏱️ 유효한 가동시간 (0보다 큰 값): {valid_runtime}개 / {len(df_runtime)}개")
                 
                 st.divider()
                 
