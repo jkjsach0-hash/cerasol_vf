@@ -57,7 +57,8 @@ st.title("🏭 공장 운영 관리 시스템")
 # -----------------------------------------------------------------------------
 URL_EQUIPMENT = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=0"
 URL_COOLING = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1052812012" 
-URL_POWER = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1442513579" 
+URL_POWER = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1442513579"
+URL_RUNTIME = "https://docs.google.com/spreadsheets/d/1AdDEm4r3lOpjCzzeksJMiTG5Z2kjmif-xvrKvE5BmSY/export?format=csv&gid=1281696201"  # ← 가동시간 시트의 실제 GID로 변경하세요
 
 @st.cache_data(ttl=600)
 def load_data(url):
@@ -70,7 +71,7 @@ def load_data(url):
 # -----------------------------------------------------------------------------
 # 5. 탭 구성
 # -----------------------------------------------------------------------------
-tab1, tab2, tab3, tab4 = st.tabs(["💰 시간당 소성비용", "🏭 설비 감가상각", "💧 냉각수 관리", "⚡ 설비 전력"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["💰 시간당 소성비용", "🏭 설비 감가상각", "💧 냉각수 관리", "⚡ 설비 전력", "⏱️ 가동 시간"])
 
 # =============================================================================
 # [탭 1] 시간당 소성 비용 계산
@@ -470,3 +471,164 @@ with tab4:
                 table_power.style.format("{:,.0f}").highlight_max(axis=0, color='#D4F1F4'), 
                 use_container_width=True
             )
+
+# =============================================================================
+# [탭 5] 가동 시간 관리 (NEW)
+# =============================================================================
+with tab5:
+    st.markdown("### ⏱️ 설비별 가동 시간 관리")
+    st.info("📌 설비별 가동시간을 월별/연도별로 분석합니다.")
+    
+    df_runtime = load_data(URL_RUNTIME)
+    
+    if df_runtime is None:
+        st.warning("⚠️ 가동시간 데이터를 불러올 수 없습니다. URL_RUNTIME의 GID를 확인하세요.")
+    else:
+        # 필수 컬럼 확인
+        required_cols = ['장비명', '설비명', '설비코드', '가동 시작 일시', '완료 예정 일시', '가동 시간']
+        missing_cols = [col for col in required_cols if col not in df_runtime.columns]
+        
+        if missing_cols:
+            st.error(f"❌ 필수 컬럼 누락: {', '.join(missing_cols)}")
+            st.info(f"현재 컬럼: {', '.join(df_runtime.columns.tolist())}")
+        else:
+            # 날짜 파싱
+            df_runtime['가동 시작 일시'] = pd.to_datetime(df_runtime['가동 시작 일시'], errors='coerce')
+            df_runtime['완료 예정 일시'] = pd.to_datetime(df_runtime['완료 예정 일시'], errors='coerce')
+            
+            # 유효한 데이터만 필터링
+            df_runtime = df_runtime.dropna(subset=['가동 시작 일시'])
+            
+            if len(df_runtime) == 0:
+                st.warning("⚠️ 유효한 가동시간 데이터가 없습니다.")
+            else:
+                # 연도/월 추출
+                df_runtime['연도'] = df_runtime['가동 시작 일시'].dt.year
+                df_runtime['월'] = df_runtime['가동 시작 일시'].dt.month
+                
+                # 가동시간을 숫자로 변환 (문자열인 경우 처리)
+                df_runtime['가동 시간'] = pd.to_numeric(df_runtime['가동 시간'], errors='coerce').fillna(0)
+                
+                st.divider()
+                
+                # ========== KPI 메트릭 ==========
+                st.subheader("📊 연도별 총 가동시간")
+                
+                yearly_totals = df_runtime.groupby('연도')['가동 시간'].sum().sort_index()
+                years_runtime = yearly_totals.index.tolist()
+                
+                if years_runtime:
+                    cols_kpi = st.columns(len(years_runtime))
+                    for i, year in enumerate(years_runtime):
+                        with cols_kpi[i]:
+                            st.metric(
+                                f"{year}년",
+                                f"{yearly_totals[year]:,.1f} 시간",
+                                help=f"{year}년 전체 설비 가동시간 합계"
+                            )
+                
+                st.divider()
+                
+                # ========== 연도별 월간 추이 차트 ==========
+                st.subheader("📈 연도별 월간 가동시간 추이")
+                
+                pivot_runtime = df_runtime.pivot_table(
+                    index='월', 
+                    columns='연도', 
+                    values='가동 시간', 
+                    aggfunc='sum'
+                )
+                pivot_runtime = pivot_runtime.reindex(range(1, 13), fill_value=0)
+                
+                st.line_chart(pivot_runtime)
+                
+                st.markdown("---")
+                
+                # ========== 설비별 상세 분석 ==========
+                st.subheader("🔧 설비별 월간 가동시간")
+                
+                # 연도 선택
+                selected_year = st.selectbox(
+                    "분석할 연도 선택",
+                    options=sorted(df_runtime['연도'].unique(), reverse=True),
+                    help="특정 연도의 설비별 가동시간을 확인합니다."
+                )
+                
+                # 선택된 연도 데이터 필터링
+                df_year = df_runtime[df_runtime['연도'] == selected_year].copy()
+                
+                # 설비별 월간 집계
+                pivot_equipment = df_year.pivot_table(
+                    index=['설비코드', '설비명'],
+                    columns='월',
+                    values='가동 시간',
+                    aggfunc='sum',
+                    fill_value=0
+                )
+                
+                # 합계 컬럼 추가
+                pivot_equipment['합계'] = pivot_equipment.sum(axis=1)
+                
+                # 컬럼명 변경 (1 → 1월)
+                new_cols_runtime = []
+                for col in pivot_equipment.columns:
+                    if col == '합계':
+                        new_cols_runtime.append('합계')
+                    else:
+                        new_cols_runtime.append(f"{col}월")
+                pivot_equipment.columns = new_cols_runtime
+                
+                # 인덱스 리셋 (설비코드, 설비명을 컬럼으로)
+                pivot_equipment = pivot_equipment.reset_index()
+                
+                # 합계 행 추가
+                total_row_runtime = pd.DataFrame({
+                    '설비코드': [''],
+                    '설비명': ['✅ 전체 합계']
+                })
+                
+                for col in pivot_equipment.columns:
+                    if col not in ['설비코드', '설비명']:
+                        total_row_runtime[col] = [pivot_equipment[col].sum()]
+                
+                display_runtime = pd.concat([pivot_equipment, total_row_runtime], ignore_index=True)
+                
+                # 데이터프레임 표시
+                st.dataframe(
+                    display_runtime.style.format(
+                        "{:,.1f}",
+                        subset=[col for col in display_runtime.columns if col not in ['설비코드', '설비명']]
+                    ).apply(
+                        lambda x: ['background-color: #E8F4F8' if x.name == len(display_runtime)-1 else '' for i in x],
+                        axis=1
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                st.markdown("---")
+                
+                # ========== 설비별 연간 비교 ==========
+                st.subheader("📊 설비별 연간 가동시간 비교")
+                
+                # 설비별 연도별 집계
+                equipment_yearly = df_runtime.groupby(['설비명', '연도'])['가동 시간'].sum().reset_index()
+                pivot_eq_year = equipment_yearly.pivot(index='설비명', columns='연도', values='가동 시간').fillna(0)
+                
+                # 합계 컬럼 추가
+                pivot_eq_year['합계'] = pivot_eq_year.sum(axis=1)
+                
+                # 컬럼명 변경
+                pivot_eq_year.columns = [f"{col}년" if col != '합계' else '합계' for col in pivot_eq_year.columns]
+                pivot_eq_year = pivot_eq_year.reset_index()
+                
+                st.dataframe(
+                    pivot_eq_year.style.format(
+                        "{:,.1f}",
+                        subset=[col for col in pivot_eq_year.columns if col != '설비명']
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                st.info("💡 **분석 팁**: 설비별 가동시간을 모니터링하여 설비 활용률을 최적화하고, 유휴 설비를 파악할 수 있습니다.")
