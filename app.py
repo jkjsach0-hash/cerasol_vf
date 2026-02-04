@@ -523,9 +523,9 @@ with tab4:
             )
 
 # =============================================================================
-# [탭 5] 가동 시간 관리 - 최종 수정 버전
-# 컬럼: 장비명, 설비명, 설비코드, 가동 시작 일시, 완료 예정 일시, 가동 시간
-# 날짜 형식: "2023. 6. 28 오후 4:00:00" (한국어)
+# [탭 5] 가동 시간 관리 - 수정 버전
+# - 원본 데이터 확인과 날짜 파싱 결과 확인을 맨 아래로 이동
+# - 설비별 월별 가동시간에 연도 필터 추가
 # =============================================================================
 
 with tab5:
@@ -537,12 +537,6 @@ with tab5:
     if df_runtime is None:
         st.warning("⚠️ 가동시간 데이터를 불러올 수 없습니다.")
     else:
-        # 디버깅 정보
-        with st.expander("🔍 원본 데이터 확인"):
-            st.write(f"**컬럼 목록:** {list(df_runtime.columns)}")
-            st.write(f"**데이터 행 수:** {len(df_runtime)}")
-            st.dataframe(df_runtime.head(10))
-        
         # 컬럼명 공백 제거
         df_runtime.columns = df_runtime.columns.str.strip()
         
@@ -616,12 +610,6 @@ with tab5:
             # 연/월을 정수로 변환
             df_valid['연'] = df_valid['연'].astype(int)
             df_valid['월'] = df_valid['월'].astype(int)
-            
-            # 파싱 결과 확인
-            with st.expander("🔍 날짜 파싱 결과 확인"):
-                st.write(f"**파싱 성공:** {df_valid['연'].notna().sum()}개")
-                st.write(f"**유효 데이터:** {len(df_valid)}개")
-                st.dataframe(df_valid[['설비명', '설비코드', '가동 시작 일시', '연', '월', '가동 시간']].head(10))
             
             if len(df_valid) == 0:
                 st.warning("⚠️ 유효한 가동시간 데이터가 없습니다.")
@@ -698,7 +686,7 @@ with tab5:
                 st.subheader("📈 연도별 월간 가동시간 추이")
                 
                 # 차트용 데이터 (합계 컬럼 제외)
-                chart_data = pivot_runtime.iloc[:, :-1]  # 합계 컬럼 제외
+                chart_data = pivot_runtime.iloc[:-1, :-1]  # 합계 행과 컬럼 제외
                 st.line_chart(chart_data.T)
                 
                 st.divider()
@@ -783,50 +771,114 @@ with tab5:
                 
                 st.divider()
                 
-                # ========== 6. 설비별 월별 가동시간 (선택) ==========
+                # ========== 6. 설비별 월별 가동시간 (연도별 필터 추가) ==========
                 st.subheader("📆 설비별 월별 가동시간 상세")
                 
-                # 설비 선택
-                equipment_list = df_valid['설비명'].unique().tolist()
-                selected_equipment = st.multiselect(
-                    "설비 선택 (복수 선택 가능)",
-                    equipment_list,
-                    default=equipment_list[:3] if len(equipment_list) >= 3 else equipment_list
-                )
+                # 연도 및 설비 선택
+                col_filter1, col_filter2 = st.columns(2)
+                
+                with col_filter1:
+                    # 연도 선택 (전체 + 개별 연도)
+                    available_years = sorted(df_valid['연'].unique().tolist())
+                    year_options = ['전체'] + [str(y) for y in available_years]
+                    selected_year = st.selectbox(
+                        "연도 선택",
+                        year_options,
+                        index=0,
+                        help="특정 연도만 보거나 전체 연도를 볼 수 있습니다"
+                    )
+                
+                with col_filter2:
+                    # 설비 선택
+                    equipment_list = df_valid['설비명'].unique().tolist()
+                    selected_equipment = st.multiselect(
+                        "설비 선택 (복수 선택 가능)",
+                        equipment_list,
+                        default=equipment_list[:3] if len(equipment_list) >= 3 else equipment_list
+                    )
                 
                 if selected_equipment:
-                    df_selected = df_valid[df_valid['설비명'].isin(selected_equipment)]
+                    # 연도 필터 적용
+                    if selected_year == '전체':
+                        df_selected = df_valid[df_valid['설비명'].isin(selected_equipment)]
+                        year_label = "전체 연도"
+                    else:
+                        selected_year_int = int(selected_year)
+                        df_selected = df_valid[
+                            (df_valid['설비명'].isin(selected_equipment)) & 
+                            (df_valid['연'] == selected_year_int)
+                        ]
+                        year_label = f"{selected_year}년"
                     
-                    # 설비별 월별 피벗
-                    pivot_eq_month = df_selected.pivot_table(
-                        index='설비명',
-                        columns='월',
-                        values='가동 시간',
-                        aggfunc='sum',
-                        fill_value=0
-                    )
-                    
-                    # 1~12월 모두 표시
-                    for month in range(1, 13):
-                        if month not in pivot_eq_month.columns:
-                            pivot_eq_month[month] = 0
-                    pivot_eq_month = pivot_eq_month[sorted(pivot_eq_month.columns)]
-                    
-                    # 합계 컬럼 추가
-                    pivot_eq_month['합계'] = pivot_eq_month.sum(axis=1)
-                    
-                    # 컬럼명 변경
-                    pivot_eq_month.columns = [f"{int(c)}월" if c != '합계' else '합계' for c in pivot_eq_month.columns]
-                    
-                    st.dataframe(
-                        pivot_eq_month.style.format("{:,.0f}"),
-                        use_container_width=True
-                    )
-                    
-                    # 선택된 설비의 월별 차트
-                    st.markdown("**📈 선택 설비 월별 추이**")
-                    chart_eq_month = pivot_eq_month.iloc[:, :-1]  # 합계 제외
-                    st.bar_chart(chart_eq_month.T)
+                    if len(df_selected) == 0:
+                        st.warning(f"⚠️ {year_label}에 해당하는 데이터가 없습니다.")
+                    else:
+                        st.markdown(f"**📊 {year_label} 설비별 월별 가동시간**")
+                        
+                        # 설비별 월별 피벗
+                        pivot_eq_month = df_selected.pivot_table(
+                            index='설비명',
+                            columns='월',
+                            values='가동 시간',
+                            aggfunc='sum',
+                            fill_value=0
+                        )
+                        
+                        # 1~12월 모두 표시
+                        for month in range(1, 13):
+                            if month not in pivot_eq_month.columns:
+                                pivot_eq_month[month] = 0
+                        pivot_eq_month = pivot_eq_month[sorted(pivot_eq_month.columns)]
+                        
+                        # 합계 컬럼 추가
+                        pivot_eq_month['합계'] = pivot_eq_month.sum(axis=1)
+                        
+                        # 컬럼명 변경
+                        pivot_eq_month.columns = [f"{int(c)}월" if c != '합계' else '합계' for c in pivot_eq_month.columns]
+                        
+                        # 합계 행 추가
+                        total_row_eq = pivot_eq_month.sum(axis=0).to_frame().T
+                        total_row_eq.index = ['✅ 합계']
+                        pivot_eq_month_display = pd.concat([pivot_eq_month, total_row_eq], axis=0)
+                        
+                        st.dataframe(
+                            pivot_eq_month_display.style.format("{:,.0f}").apply(
+                                lambda x: ['background-color: #E8F4F8; font-weight: bold' 
+                                           if x.name == '✅ 합계' else '' for i in x],
+                                axis=1
+                            ),
+                            use_container_width=True
+                        )
+                        
+                        # 선택된 설비의 월별 차트
+                        st.markdown(f"**📈 {year_label} 선택 설비 월별 추이**")
+                        chart_eq_month = pivot_eq_month.iloc[:, :-1]  # 합계 제외
+                        st.bar_chart(chart_eq_month.T)
+                        
+                        # 연도별 비교 (전체 선택 시에만 표시)
+                        if selected_year == '전체' and len(available_years) > 1:
+                            st.markdown("---")
+                            st.markdown("**📊 선택 설비의 연도별 비교**")
+                            
+                            # 연도별 피벗
+                            pivot_eq_year_selected = df_selected.pivot_table(
+                                index='설비명',
+                                columns='연',
+                                values='가동 시간',
+                                aggfunc='sum',
+                                fill_value=0
+                            )
+                            
+                            # 합계 컬럼 추가
+                            pivot_eq_year_selected['합계'] = pivot_eq_year_selected.sum(axis=1)
+                            
+                            # 컬럼명 변경
+                            pivot_eq_year_selected.columns = [f"{int(c)}년" if c != '합계' else '합계' for c in pivot_eq_year_selected.columns]
+                            
+                            st.dataframe(
+                                pivot_eq_year_selected.style.format("{:,.0f}"),
+                                use_container_width=True
+                            )
                 
                 st.divider()
                 
@@ -848,6 +900,21 @@ with tab5:
                 with col4:
                     max_eq_name = equipment_totals.iloc[0]['설비명'] if len(equipment_totals) > 0 else '-'
                     st.metric("최다 가동 설비", max_eq_name)
+                
+                st.divider()
+                
+                # ========== 8. 디버깅 정보 (맨 아래로 이동) ==========
+                st.subheader("🔍 데이터 확인")
+                
+                with st.expander("📄 원본 데이터 확인"):
+                    st.write(f"**컬럼 목록:** {list(df_runtime.columns)}")
+                    st.write(f"**데이터 행 수:** {len(df_runtime)}")
+                    st.dataframe(df_runtime.head(10))
+                
+                with st.expander("📅 날짜 파싱 결과 확인"):
+                    st.write(f"**파싱 성공:** {df_valid['연'].notna().sum()}개")
+                    st.write(f"**유효 데이터:** {len(df_valid)}개")
+                    st.dataframe(df_valid[['설비명', '설비코드', '가동 시작 일시', '연', '월', '가동 시간']].head(10))
 
 # =============================================================================
 # [탭 6] 월별 시간당 전력 사용량 분석
