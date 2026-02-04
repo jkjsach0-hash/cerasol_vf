@@ -771,114 +771,66 @@ with tab5:
                 
                 st.divider()
                 
-                # ========== 6. 설비별 월별 가동시간 (연도별 필터 추가) ==========
+                # ========== 6. 설비별 월별 가동시간 (설비별 개별 표) ==========
                 st.subheader("📆 설비별 월별 가동시간 상세")
+                st.caption("🔹 각 설비별로 연도(행) × 월(열) 가동시간을 표시합니다.")
                 
-                # 연도 및 설비 선택
-                col_filter1, col_filter2 = st.columns(2)
+                # 설비 목록
+                equipment_list = df_valid.groupby(['설비코드', '설비명'])['가동 시간'].sum().reset_index()
+                equipment_list = equipment_list.sort_values('가동 시간', ascending=False)
                 
-                with col_filter1:
-                    # 연도 선택 (전체 + 개별 연도)
-                    available_years = sorted(df_valid['연'].unique().tolist())
-                    year_options = ['전체'] + [str(y) for y in available_years]
-                    selected_year = st.selectbox(
-                        "연도 선택",
-                        year_options,
-                        index=0,
-                        help="특정 연도만 보거나 전체 연도를 볼 수 있습니다"
-                    )
-                
-                with col_filter2:
-                    # 설비 선택
-                    equipment_list = df_valid['설비명'].unique().tolist()
-                    selected_equipment = st.multiselect(
-                        "설비 선택 (복수 선택 가능)",
-                        equipment_list,
-                        default=equipment_list[:3] if len(equipment_list) >= 3 else equipment_list
-                    )
-                
-                if selected_equipment:
-                    # 연도 필터 적용
-                    if selected_year == '전체':
-                        df_selected = df_valid[df_valid['설비명'].isin(selected_equipment)]
-                        year_label = "전체 연도"
-                    else:
-                        selected_year_int = int(selected_year)
-                        df_selected = df_valid[
-                            (df_valid['설비명'].isin(selected_equipment)) & 
-                            (df_valid['연'] == selected_year_int)
-                        ]
-                        year_label = f"{selected_year}년"
+                # 설비별로 개별 표 생성
+                for idx, eq_row in equipment_list.iterrows():
+                    eq_code = eq_row['설비코드']
+                    eq_name = eq_row['설비명']
+                    eq_total = eq_row['가동 시간']
                     
-                    if len(df_selected) == 0:
-                        st.warning(f"⚠️ {year_label}에 해당하는 데이터가 없습니다.")
-                    else:
-                        st.markdown(f"**📊 {year_label} 설비별 월별 가동시간**")
-                        
-                        # 설비별 월별 피벗
-                        pivot_eq_month = df_selected.pivot_table(
-                            index='설비명',
-                            columns='월',
-                            values='가동 시간',
-                            aggfunc='sum',
-                            fill_value=0
-                        )
-                        
-                        # 1~12월 모두 표시
-                        for month in range(1, 13):
-                            if month not in pivot_eq_month.columns:
-                                pivot_eq_month[month] = 0
-                        pivot_eq_month = pivot_eq_month[sorted(pivot_eq_month.columns)]
-                        
-                        # 합계 컬럼 추가
-                        pivot_eq_month['합계'] = pivot_eq_month.sum(axis=1)
-                        
-                        # 컬럼명 변경
-                        pivot_eq_month.columns = [f"{int(c)}월" if c != '합계' else '합계' for c in pivot_eq_month.columns]
-                        
-                        # 합계 행 추가
-                        total_row_eq = pivot_eq_month.sum(axis=0).to_frame().T
-                        total_row_eq.index = ['✅ 합계']
-                        pivot_eq_month_display = pd.concat([pivot_eq_month, total_row_eq], axis=0)
-                        
-                        st.dataframe(
-                            pivot_eq_month_display.style.format("{:,.0f}").apply(
-                                lambda x: ['background-color: #E8F4F8; font-weight: bold' 
-                                           if x.name == '✅ 합계' else '' for i in x],
-                                axis=1
-                            ),
-                            use_container_width=True
-                        )
-                        
-                        # 선택된 설비의 월별 차트
-                        st.markdown(f"**📈 {year_label} 선택 설비 월별 추이**")
-                        chart_eq_month = pivot_eq_month.iloc[:, :-1]  # 합계 제외
-                        st.bar_chart(chart_eq_month.T)
-                        
-                        # 연도별 비교 (전체 선택 시에만 표시)
-                        if selected_year == '전체' and len(available_years) > 1:
-                            st.markdown("---")
-                            st.markdown("**📊 선택 설비의 연도별 비교**")
-                            
-                            # 연도별 피벗
-                            pivot_eq_year_selected = df_selected.pivot_table(
-                                index='설비명',
-                                columns='연',
-                                values='가동 시간',
-                                aggfunc='sum',
-                                fill_value=0
-                            )
-                            
-                            # 합계 컬럼 추가
-                            pivot_eq_year_selected['합계'] = pivot_eq_year_selected.sum(axis=1)
-                            
-                            # 컬럼명 변경
-                            pivot_eq_year_selected.columns = [f"{int(c)}년" if c != '합계' else '합계' for c in pivot_eq_year_selected.columns]
-                            
-                            st.dataframe(
-                                pivot_eq_year_selected.style.format("{:,.0f}"),
-                                use_container_width=True
-                            )
+                    # 해당 설비 데이터 필터링
+                    df_eq = df_valid[(df_valid['설비코드'] == eq_code) & (df_valid['설비명'] == eq_name)]
+                    
+                    # 설비별 섹션 헤더
+                    st.markdown(f"#### 🔧 {eq_name} (총 {eq_total:,.0f}시간)")
+                    
+                    # 피벗 테이블: 연도(행) x 월(열)
+                    pivot_eq = df_eq.pivot_table(
+                        index='연',
+                        columns='월',
+                        values='가동 시간',
+                        aggfunc='sum',
+                        fill_value=0
+                    )
+                    
+                    # 1~12월 모두 표시
+                    for month in range(1, 13):
+                        if month not in pivot_eq.columns:
+                            pivot_eq[month] = 0
+                    pivot_eq = pivot_eq[sorted(pivot_eq.columns)]
+                    
+                    # 합계 컬럼 추가
+                    pivot_eq['합계'] = pivot_eq.sum(axis=1)
+                    
+                    # 컬럼명 변경 (1 → 1월)
+                    pivot_eq.columns = [f"{int(c)}월" if c != '합계' else '합계' for c in pivot_eq.columns]
+                    
+                    # 인덱스명 변경 (2024 → 2024년)
+                    pivot_eq.index = [f"{int(y)}년" for y in pivot_eq.index]
+                    
+                    # 합계 행 추가
+                    total_row_eq = pivot_eq.sum(axis=0).to_frame().T
+                    total_row_eq.index = ['합계']
+                    pivot_eq_display = pd.concat([pivot_eq, total_row_eq], axis=0)
+                    
+                    # 스타일링 및 표시
+                    st.dataframe(
+                        pivot_eq_display.style.format("{:,.0f}").apply(
+                            lambda x: ['background-color: #E8F4F8; font-weight: bold' 
+                                       if x.name == '합계' else '' for i in x],
+                            axis=1
+                        ),
+                        use_container_width=True
+                    )
+                    
+                    st.markdown("---")
                 
                 st.divider()
                 
