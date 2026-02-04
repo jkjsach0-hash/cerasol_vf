@@ -777,7 +777,13 @@ with tab5:
                 
                 # 설비 목록
                 equipment_list = df_valid.groupby(['설비코드', '설비명'])['가동 시간'].sum().reset_index()
-                equipment_list = equipment_list.sort_values('가동 시간', ascending=False)
+                
+                # 지정된 순서로 정렬: 고온진공소결로, 소형진공소결로, 탈지로1, 탈지로2
+                desired_order = ['고온진공소결로', '소형진공소결로', '탈지로1', '탈지로2']
+                equipment_list['순서'] = equipment_list['설비명'].apply(
+                    lambda x: desired_order.index(x) if x in desired_order else len(desired_order)
+                )
+                equipment_list = equipment_list.sort_values('순서')
                 
                 # 설비별로 개별 표 생성
                 for idx, eq_row in equipment_list.iterrows():
